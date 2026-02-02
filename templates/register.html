@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Initialize Identity | TITAN</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+    <style>
+        body { background: #020204; color: #EAEAEB; font-family: 'Inter', sans-serif; overflow: hidden; }
+        .glass-panel { 
+            background: rgba(20,20,26,0.6); 
+            backdrop-filter: blur(20px); 
+            border: 1px solid rgba(255,255,255,0.08); 
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
+        }
+        .input-field {
+            background: rgba(0,0,0,0.4);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: white;
+            font-family: 'Inter';
+            transition: all 0.3s;
+        }
+        .input-field:focus {
+            border-color: #6366f1;
+            box-shadow: 0 0 0 4px rgba(99,102,241,0.1);
+            background: rgba(0,0,0,0.6);
+            outline: none;
+        }
+        .submit-btn {
+            background: #6366f1;
+            color: white;
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+        .submit-btn:hover { background: #4f46e5; transform: translateY(-1px); 
+            box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.3); }
+        .submit-btn:active { transform: translateY(0); }
+        
+        /* Grid Background */
+        .bg-grid { 
+            background-size: 40px 40px; 
+            background-image: linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            mask-image: radial-gradient(circle at center, black, transparent 80%);
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center h-screen relative">
+    
+    <div class="absolute inset-0 bg-grid pointer-events-none"></div>
+    <div class="absolute w-[600px] h-[600px] bg-indigo-600/10 rounded-full blur-[120px] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"></div>
+
+    <div class="glass-panel w-full max-w-sm p-8 rounded-3xl relative z-10 mx-4">
+        
+        <div class="mb-8">
+            <h1 class="text-2xl font-black tracking-tight text-white mb-1">NEW IDENTITY</h1>
+            <p class="text-gray-500 text-xs font-mono uppercase tracking-widest">Access Application Protocol</p>
+        </div>
+
+        <form action="/register" method="POST" class="space-y-4">
+            <input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-[10px] font-bold uppercase text-gray-500 mb-1 ml-1">Username</label>
+                    <input name="username" required class="input-field w-full px-4 py-3 rounded-xl text-sm font-bold" placeholder="Username">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold uppercase text-gray-500 mb-1 ml-1">Referral</label>
+                    <input name="ref" class="input-field w-full px-4 py-3 rounded-xl text-sm font-bold" placeholder="Invite Code">
+                </div>
+            </div>
+            
+            <div>
+                <label class="block text-[10px] font-bold uppercase text-gray-500 mb-1 ml-1">Password</label>
+                <input type="password" name="password" required class="input-field w-full px-4 py-3 rounded-xl text-sm font-bold" placeholder="••••••">
+            </div>
+
+            <!-- CAPTCHA -->
+            <div class="p-1 pb-0">
+                <div class="flex justify-between items-end mb-2 px-1">
+                    <label class="text-[10px] font-bold uppercase text-gray-500">Security</label>
+                    <span onclick="reloadCaptcha()" class="text-[9px] text-indigo-400 cursor-pointer hover:text-indigo-300 transition">Reload Image</span>
+                </div>
+                <div class="relative group">
+                    <input type="hidden" name="captchaId" id="captcha-id" value="{{.CaptchaId}}">
+                    <div class="flex border border-white/10 rounded-xl overflow-hidden">
+                        <div class="w-1/2 bg-white relative cursor-pointer" onclick="reloadCaptcha()" title="Reload">
+                            <img id="captcha-img" src="/captcha/{{.CaptchaId}}.png" class="h-full w-full object-cover">
+                            <div class="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition"></div>
+                        </div>
+                        <input name="captcha" required class="w-1/2 bg-black/40 text-white font-mono text-center tracking-widest text-lg focus:outline-none focus:bg-black/60 transition" placeholder="CODE" autocomplete="off">
+                    </div>
+                </div>
+            </div>
+
+            <button class="submit-btn w-full py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest mt-2">
+                Initialize Account
+            </button>
+        </form>
+
+        <div class="mt-6 text-center">
+            <a href="/login" class="text-xs text-gray-500 hover:text-white transition">Have an ID? <span class="text-indigo-400 font-bold">Login</span></a>
+        </div>
+    </div>
+
+    <script>
+        function reloadCaptcha() {
+            const img = document.getElementById('captcha-img');
+            img.style.opacity = '0.5';
+            fetch('/api/captcha/new')
+                .then(r => r.text())
+                .then(id => {
+                    img.src = "/captcha/" + id + ".png";
+                    document.getElementById('captcha-id').value = id;
+                    img.style.opacity = '1';
+                })
+                .catch(() => img.style.opacity = '1');
+        }
+        
+        // Error Handler
+        const params = new URLSearchParams(window.location.search);
+        const err = params.get('err');
+        if(err) {
+            const msg = err === 'taken' ? 'Username Unavailable' : 'Security Check Failed';
+            const d = document.createElement('div');
+            d.className = 'fixed top-6 bg-red-500/10 border border-red-500/50 text-red-400 px-6 py-3 rounded-xl text-xs font-bold shadow-xl backdrop-blur-md animate-bounce';
+            d.innerText = msg;
+            document.body.appendChild(d);
+            setTimeout(()=>d.remove(), 3000);
+        }
+    </script>
+</body>
+</html>

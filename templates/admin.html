@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <title>TITAN | Command Center</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="//unpkg.com/alpinejs" defer></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+    <script>
+        if (localStorage.theme === 'light') document.documentElement.classList.remove('dark');
+        else document.documentElement.classList.add('dark');
+        function toggleTheme() {
+            if (document.documentElement.classList.contains('dark')) {
+                document.documentElement.classList.remove('dark');
+                localStorage.theme = 'light';
+            } else {
+                document.documentElement.classList.add('dark');
+                localStorage.theme = 'dark';
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Inter', sans-serif; transition: background 0.3s, color 0.3s; }
+        
+        /* THEMES */
+        .dark body { background: #050507; color: #E4E4E7; }
+        body { background: #F3F4F6; color: #18181B; } /* Light Gray SaaS Look */
+
+        /* PANELS */
+        .card { 
+            background: #ffffff; 
+            border: 1px solid #E4E4E7; 
+            border-radius: 16px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02);
+        }
+        .dark .card { 
+            background: rgba(20,20,25,0.7); 
+            border: 1px solid rgba(255,255,255,0.05); 
+            box-shadow: none;
+            backdrop-filter: blur(20px);
+        }
+
+        /* INPUTS */
+        .input-box {
+            background: #F9FAFB;
+            border: 1px solid #E5E7EB;
+            color: #111827;
+            font-weight: 500;
+            padding: 10px;
+            border-radius: 8px;
+            width: 100%;
+            outline: none;
+            font-size: 13px;
+        }
+        .dark .input-box {
+            background: rgba(0,0,0,0.4);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: white;
+        }
+        .input-box:focus { border-color: #6366F1; }
+
+        /* BUTTONS */
+        .btn-primary {
+            background: #18181B;
+            color: white;
+            padding: 8px 20px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            transition: 0.2s;
+        }
+        .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+        .dark .btn-primary { background: white; color: black; }
+
+        /* NAV ITEMS */
+        .nav-item { color: #71717A; font-weight: 600; padding: 10px 14px; border-radius: 10px; display: flex; align-items: center; gap: 10px; transition: 0.2s; }
+        .nav-item:hover { background: rgba(0,0,0,0.03); color: black; }
+        .nav-item.active { background: #FFFFFF; color: #4F46E5; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #F3F4F6; }
+        
+        .dark .nav-item { color: #A1A1AA; }
+        .dark .nav-item:hover { background: rgba(255,255,255,0.03); color: white; }
+        .dark .nav-item.active { background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.05); box-shadow: none; }
+
+        /* BADGES */
+        .badge { padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+        .badge-green { background: rgba(34, 197, 94, 0.1); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.2); }
+        .badge-red { background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); }
+        
+        /* TABLE */
+        th { font-size: 10px; text-transform: uppercase; color: #a1a1aa; font-weight: 700; padding: 12px; letter-spacing: 0.05em; }
+        td { font-size: 13px; padding: 14px 12px; border-top: 1px solid rgba(128,128,128,0.1); }
+        tr:hover td { background: rgba(128,128,128,0.02); }
+
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-thumb { background: #52525b; border-radius: 3px; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="flex h-screen overflow-hidden">
+
+    <!-- ADMIN SIDEBAR -->
+    <aside class="w-64 h-full flex flex-col border-r border-gray-200 dark:border-white/5 bg-white dark:bg-[#08080a] z-50">
+        <!-- HEADER -->
+        <div class="h-20 flex items-center px-6 border-b border-gray-100 dark:border-white/5">
+            <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold mr-3">G</div>
+            <div>
+                <h1 class="font-bold text-sm leading-none uppercase">TITAN CORE</h1>
+                <span class="text-[10px] text-gray-400 font-mono">ROOT ACCESS</span>
+            </div>
+        </div>
+
+        <!-- NAVIGATION -->
+        <div class="flex-1 overflow-y-auto p-4 space-y-8">
+            <div>
+                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 px-3">Management</div>
+                <div class="space-y-1">
+                    <a href="/admin?view=overview" class="nav-item {{if eq .CurrentView "overview"}}active{{end}}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg> Dashboard</a>
+                    <a href="/admin?view=users" class="nav-item {{if eq .CurrentView "users"}}active{{end}}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg> User Database</a>
+                    <a href="/admin?view=finance" class="nav-item {{if eq .CurrentView "finance"}}active{{end}}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg> Finance</a>
+                </div>
+            </div>
+            
+            <div>
+                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 px-3">Network Ops</div>
+                <div class="space-y-1">
+                    <a href="/admin?view=attacks" class="nav-item {{if eq .CurrentView "attacks"}}active{{end}}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> Live Attacks</a>
+                    <a href="/admin?view=blacklist" class="nav-item {{if eq .CurrentView "blacklist"}}active{{end}}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg> Blacklist</a>
+                </div>
+            </div>
+
+            <div>
+                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 px-3">Configuration</div>
+                <div class="space-y-1">
+                    <a href="/admin?view=market" class="nav-item {{if eq .CurrentView "market"}}active{{end}}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/></svg> Market Plans</a>
+                    <a href="/admin?view=settings" class="nav-item {{if eq .CurrentView "settings"}}active{{end}}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg> Settings</a>
+                    <a href="/admin?view=tickets" class="nav-item {{if eq .CurrentView "tickets"}}active{{end}}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg> Tickets</a>
+                </div>
+            </div>
+        </nav>
+
+        <div class="p-4 border-t border-gray-100 dark:border-white/5">
+            <a href="/dashboard" class="flex items-center justify-center p-3 rounded-xl border border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white font-bold text-[10px] uppercase transition shadow-sm">
+                Exit Panel
+            </a>
+        </div>
+    </aside>
+
+    <!-- CONTENT -->
+    <main class="flex-1 overflow-y-auto bg-gray-50 dark:bg-black p-8 relative">
+        
+        <!-- HEADER -->
+        <div class="flex justify-between items-center mb-8">
+            <div>
+                <h2 class="text-2xl font-bold dark:text-white text-gray-900 capitalize">{{.CurrentView}}</h2>
+                <p class="text-xs text-gray-500 font-mono mt-1">Admin Session / {{.Uptime}}</p>
+            </div>
+            <button onclick="toggleTheme()" class="w-10 h-10 rounded-full bg-white dark:bg-white/5 border border-gray-200 dark:border-white/5 flex items-center justify-center shadow-sm">
+                <svg class="w-5 h-5 dark:hidden text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+                <svg class="w-5 h-5 hidden dark:block text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+            </button>
+        </div>
+
+        <!-- ================= OVERVIEW VIEW ================= -->
+        {{if eq .CurrentView "overview"}}
+        <div class="grid grid-cols-4 gap-6 mb-8">
+            <div class="card p-5">
+                <div class="text-[10px] font-bold text-gray-400 uppercase">Total Users</div>
+                <div class="text-3xl font-black mt-2 text-gray-900 dark:text-white">{{.TotalUsers}}</div>
+            </div>
+            <div class="card p-5">
+                <div class="text-[10px] font-bold text-gray-400 uppercase">Requests Per Sec</div>
+                <div class="text-3xl font-black mt-2 text-indigo-600 dark:text-indigo-400">{{.RPS}}</div>
+            </div>
+            <div class="card p-5">
+                <div class="text-[10px] font-bold text-gray-400 uppercase">Running Attacks</div>
+                <div class="text-3xl font-black mt-2 text-red-500">{{.RunningAttacks}}</div>
+            </div>
+            <div class="card p-5 bg-gradient-to-br from-indigo-600 to-purple-600 border-none text-white">
+                <div class="text-[10px] font-bold opacity-70 uppercase">System Health</div>
+                <div class="text-xl font-bold mt-2">100% ONLINE</div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-12 gap-6">
+            <div class="col-span-8 card p-6">
+                <h3 class="font-bold text-sm uppercase text-gray-500 mb-4">Latest Invoices</h3>
+                <table class="w-full">
+                    <thead><tr><th>User</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead>
+                    <tbody>
+                        {{range .Deposits}}
+                        <tr>
+                            <td class="font-bold">{{.UserID}}</td>
+                            <td class="text-green-500 font-bold">${{.UsdAmount}}</td>
+                            <td><span class="badge {{if eq .Status "Paid"}}badge-green{{else}}badge-red{{end}}">{{.Status}}</span></td>
+                            <td class="text-gray-500 font-mono text-xs">{{.Date}}</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+            <div class="col-span-4 card p-6 flex flex-col justify-center">
+                <h3 class="font-bold text-sm uppercase text-gray-500 mb-4 text-center">Instant Key Generator</h3>
+                <form action="/api/admin/gen-code" method="POST" class="space-y-4">
+                    <div>
+                        <label class="text-[10px] font-bold uppercase mb-1 block">Plan Type</label>
+                        <select name="plan" class="input-box">
+                            {{range $name, $config := .PlanConfigs}}
+                                <option value="{{$name}}">{{$name}}</option>
+                            {{end}}
+                        </select>
+                    </div>
+                    <button class="btn-primary w-full">Generate & Copy</button>
+                </form>
+                <div id="gencode" class="mt-4 p-3 bg-black/5 dark:bg-white/5 rounded border border-gray-200 dark:border-white/10 text-center font-mono text-xs cursor-pointer select-all" onclick="navigator.clipboard.writeText(this.innerText)">Result will appear here...</div>
+            </div>
+        </div>
+        {{end}}
+
+        <!-- ================= USERS VIEW ================= -->
+        {{if eq .CurrentView "users"}}
+        <div class="card p-0 overflow-hidden">
+            <div class="p-6 border-b border-gray-100 dark:border-white/5 flex justify-between items-center">
+                <h3 class="font-bold text-sm uppercase text-gray-500">User Database</h3>
+                <input placeholder="Search user..." class="input-box w-64" style="padding: 6px 12px;">
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead class="bg-gray-50 dark:bg-white/5"><tr><th class="pl-6">Username</th><th>Plan</th><th>Balance</th><th>Status</th><th>API Token</th></tr></thead>
+                    <tbody class="divide-y divide-gray-100 dark:divide-white/5">
+                        {{range .Users}}
+                        <tr>
+                            <td class="pl-6 font-bold text-gray-900 dark:text-white">{{.Username}}</td>
+                            <td><span class="badge badge-green">{{.Plan}}</span></td>
+                            <td class="font-mono">${{.Balance}}</td>
+                            <td class="text-xs">{{.Status}}</td>
+                            <td><code class="text-[10px] bg-black/5 dark:bg-white/5 px-2 py-1 rounded cursor-pointer">{{.ApiToken}}</code></td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {{end}}
+
+        <!-- ================= FINANCE VIEW ================= -->
+        {{if eq .CurrentView "finance"}}
+        <div class="grid grid-cols-2 gap-6">
+            <div class="card p-0">
+                <div class="p-6 border-b border-gray-100 dark:border-white/5">
+                    <h3 class="font-bold text-sm uppercase text-gray-500">Deposit Requests</h3>
+                </div>
+                <div class="overflow-y-auto h-[500px]">
+                    <table class="w-full">
+                        <thead class="bg-gray-50 dark:bg-white/5"><tr><th class="pl-6">User</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead>
+                        <tbody>
+                            {{range .Deposits}}
+                            <tr>
+                                <td class="pl-6 font-bold">{{.UserID}}</td>
+                                <td class="text-green-500 font-bold">${{.UsdAmount}}</td>
+                                <td>{{if eq .Status "Paid"}}<span class="badge badge-green">PAID</span>{{else}}<span class="badge badge-red">{{.Status}}</span>{{end}}</td>
+                                <td>{{if eq .Status "Pending"}}<a href="/api/admin/deposit/action?id={{.ID}}&action=accept" class="text-green-500 font-bold mr-2">Accept</a><a href="/api/admin/deposit/action?id={{.ID}}&action=reject" class="text-red-500 font-bold">Reject</a>{{end}}</td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div class="card p-6 h-fit">
+                <h3 class="font-bold text-sm uppercase text-gray-500 mb-4">Manage Wallets</h3>
+                <form action="/api/admin/add-wallet" method="POST" class="grid grid-cols-3 gap-2 mb-6">
+                    <input name="address" placeholder="Address" class="input-box col-span-2">
+                    <input name="private_key" placeholder="Key (Hidden)" class="input-box">
+                    <button class="btn-primary col-span-3">Add Wallet</button>
+                </form>
+                <div class="space-y-2 max-h-[400px] overflow-y-auto">
+                    {{range .Wallets}}
+                    <div class="p-3 border border-gray-100 dark:border-white/5 rounded flex justify-between items-center text-xs">
+                        <span class="font-mono opacity-70 truncate w-2/3">{{.Address}}</span>
+                        <span class="font-bold {{if eq .Status "Free"}}text-green-500{{else}}text-red-500{{end}}">{{.Status}}</span>
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+        </div>
+        {{end}}
+
+        <!-- ================= OPERATIONS: ATTACKS / MARKET ================= -->
+        {{if eq .CurrentView "market"}}
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="card p-6 lg:col-span-1">
+                <h3 class="font-bold text-sm uppercase text-gray-500 mb-4">Create Product</h3>
+                <form action="/api/admin/add-product" method="POST" class="space-y-4">
+                    <div><label class="text-[10px] uppercase font-bold mb-1 block">Plan Name</label><input name="name" class="input-box" placeholder="e.g. Diamond"></div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div><label class="text-[10px] uppercase font-bold mb-1 block">Price</label><input name="price" type="number" step="0.01" class="input-box" placeholder="$$"></div>
+                        <div><label class="text-[10px] uppercase font-bold mb-1 block">Duration</label><input name="time" class="input-box" placeholder="Secs"></div>
+                    </div>
+                    <div><label class="text-[10px] uppercase font-bold mb-1 block">Concurrency</label><input name="concurrents" class="input-box" placeholder="Threads"></div>
+                    <div class="flex gap-4">
+                        <label class="flex items-center gap-2 text-xs font-bold"><input type="checkbox" name="vip"> VIP</label>
+                        <label class="flex items-center gap-2 text-xs font-bold"><input type="checkbox" name="api"> API Access</label>
+                    </div>
+                    <button class="btn-primary w-full">Deploy to Market</button>
+                </form>
+            </div>
+            <div class="card p-0 lg:col-span-2 overflow-hidden">
+                <table class="w-full">
+                    <thead class="bg-gray-50 dark:bg-white/5"><tr><th class="pl-6">Product</th><th>Price</th><th>Specs</th><th>Flags</th><th>Action</th></tr></thead>
+                    <tbody>
+                        {{range .Products}}
+                        <tr>
+                            <td class="pl-6 font-bold">{{.Name}}</td>
+                            <td class="text-green-500 font-mono">${{.Price}}</td>
+                            <td class="text-xs text-gray-500">{{.Time}}s / {{.Concurrents}}</td>
+                            <td class="text-[10px] uppercase">{{if .VIP}}<span class="text-yellow-500 font-bold">VIP</span> {{end}}{{if .APIAccess}}<span class="text-indigo-500 font-bold">API</span>{{end}}</td>
+                            <td><a href="/api/admin/del-product?id={{.ID}}" class="text-red-500 font-bold text-xs hover:underline">Delete</a></td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {{end}}
+
+        {{if eq .CurrentView "attacks"}}
+        <div class="card p-0">
+            <div class="p-6 border-b border-gray-100 dark:border-white/5 flex justify-between items-center">
+                <h3 class="font-bold text-sm uppercase text-gray-500">Live Network Activity</h3>
+                <button onclick="fetch('/api/attack/stopAll');location.reload()" class="bg-red-500/10 text-red-500 border border-red-500/20 px-3 py-1 rounded text-xs font-bold hover:bg-red-500 hover:text-white transition">EMERGENCY STOP</button>
+            </div>
+            <table class="w-full">
+                <thead class="bg-gray-50 dark:bg-white/5"><tr><th class="pl-6">Target</th><th>Method</th><th>Initiator</th><th>Duration</th><th>Control</th></tr></thead>
+                <tbody>
+                    {{range .ActiveAttacksList}}
+                    <tr>
+                        <td class="pl-6 font-mono text-indigo-500">{{.Target}}</td>
+                        <td class="font-bold">{{.Method}}</td>
+                        <td>{{.UserID}}</td>
+                        <td>{{.Duration}}s</td>
+                        <td><a href="/api/attack/stop?id={{.ID}}" class="text-red-500 hover:text-white hover:bg-red-500 px-2 py-1 rounded text-xs font-bold transition">Kill</a></td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{end}}
+
+        {{if eq .CurrentView "settings"}}
+        <div class="card p-6 max-w-3xl">
+            <h3 class="font-bold text-sm uppercase text-gray-500 mb-6">Plan Configurations</h3>
+            <form action="/api/admin/config-plans" method="POST" class="grid grid-cols-2 gap-6">
+                {{range $name, $conf := .PlanConfigs}}
+                <div class="p-4 border border-gray-200 dark:border-white/10 rounded-xl relative">
+                    <span class="absolute -top-3 left-4 bg-white dark:bg-[#050507] px-2 text-xs font-black text-indigo-500 uppercase">{{$name}}</span>
+                    <div class="grid grid-cols-2 gap-4 mt-2">
+                        <div><label class="text-[10px] uppercase font-bold block mb-1">Max Conc</label><input name="{{$name}}_conc" value="{{$conf.Concurrents}}" class="input-box text-center"></div>
+                        <div><label class="text-[10px] uppercase font-bold block mb-1">Max Time</label><input name="{{$name}}_time" value="{{$conf.MaxTime}}" class="input-box text-center"></div>
+                    </div>
+                    <div class="mt-3 flex gap-2">
+                        <label class="flex items-center gap-2 text-xs font-bold"><input type="checkbox" name="{{$name}}_vip" {{if $conf.VIP}}checked{{end}}> VIP Network</label>
+                    </div>
+                </div>
+                {{end}}
+                <button class="col-span-2 btn-primary py-4">Save System Configuration</button>
+            </form>
+        </div>
+        {{end}}
+
+        {{if eq .CurrentView "blacklist"}}
+        <div class="card p-6">
+            <form action="/api/admin/blacklist" method="POST" class="flex gap-2 mb-6">
+                <input type="hidden" name="action" value="add">
+                <input name="target" class="input-box flex-1" placeholder="Target to Ban">
+                <input name="reason" class="input-box flex-1" placeholder="Reason">
+                <button class="btn-primary">ADD TO BLACKLIST</button>
+            </form>
+            <table class="w-full">
+                <thead><tr><th>Target</th><th>Reason</th><th>Date</th><th>Action</th></tr></thead>
+                <tbody>
+                    {{range .Blacklist}}
+                    <tr><td class="font-mono text-red-500">{{.Target}}</td><td>{{.Reason}}</td><td class="text-xs">{{.Date}}</td><td><a href="/api/admin/blacklist?action=del&target={{.Target}}" class="underline">Unban</a></td></tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{end}}
+
+        {{if eq .CurrentView "tickets"}}
+        <div class="grid grid-cols-12 gap-6 h-[600px]">
+            <!-- List -->
+            <div class="col-span-4 card p-0 flex flex-col h-full">
+                <div class="p-4 border-b border-gray-100 dark:border-white/5"><h3 class="font-bold text-xs uppercase text-gray-500">Inbox</h3></div>
+                <div class="flex-1 overflow-y-auto">
+                    {{range .Tickets}}
+                    <a href="/admin?view=tickets&ticket={{.ID}}" class="block p-4 border-b border-gray-100 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/5 transition {{if eq $.CurrentTicket.ID .ID}}bg-indigo-50 dark:bg-indigo-900/10 border-l-4 border-l-indigo-500{{end}}">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="font-bold text-xs">{{.UserID}}</span>
+                            <span class="text-[9px] font-bold px-2 rounded-full {{if eq .Status "Open"}}bg-green-100 text-green-600{{else}}bg-gray-100 text-gray-500{{end}}">{{.Status}}</span>
+                        </div>
+                        <div class="text-[11px] text-gray-500 truncate">{{.Subject}}</div>
+                    </a>
+                    {{end}}
+                </div>
+            </div>
+            <!-- Chat -->
+            <div class="col-span-8 card p-0 flex flex-col h-full overflow-hidden relative">
+                {{if .CurrentTicket.ID}}
+                <div class="p-4 border-b border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-white/5 flex justify-between items-center">
+                    <div>
+                        <h2 class="font-bold text-sm">{{.CurrentTicket.Subject}}</h2>
+                        <div class="text-[10px] opacity-50 font-mono">{{.CurrentTicket.ID}}</div>
+                    </div>
+                </div>
+                <div class="flex-1 overflow-y-auto p-6 space-y-4">
+                    {{range .CurrentTicket.Messages}}
+                    <div class="flex flex-col {{if .IsAdmin}}items-end{{else}}items-start{{end}}">
+                        <div class="max-w-[70%] p-3 rounded-2xl text-xs {{if .IsAdmin}}bg-indigo-600 text-white rounded-br-none{{else}}bg-gray-100 dark:bg-white/10 dark:text-gray-200 rounded-bl-none{{end}}">
+                            {{.Content}}
+                        </div>
+                        <span class="text-[9px] opacity-40 mt-1 mx-1">{{.Time}}</span>
+                    </div>
+                    {{end}}
+                </div>
+                <div class="p-4 border-t border-gray-100 dark:border-white/5 bg-white dark:bg-[#0a0a0c]">
+                    <form action="/api/ticket/reply" method="POST" class="flex gap-2">
+                        <input type="hidden" name="id" value="{{.CurrentTicket.ID}}">
+                        <input name="message" class="input-box flex-1 rounded-full px-4" placeholder="Type a reply..." autocomplete="off">
+                        <button class="bg-indigo-600 text-white w-10 h-10 rounded-full flex items-center justify-center hover:bg-indigo-500 transition"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg></button>
+                    </form>
+                </div>
+                {{else}}
+                <div class="flex-1 flex flex-col items-center justify-center text-gray-300 dark:text-gray-700">
+                    <svg class="w-16 h-16 mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                    <span class="text-xs font-bold uppercase tracking-widest opacity-70">Select a Ticket</span>
+                </div>
+                {{end}}
+            </div>
+        </div>
+        {{end}}
+
+    </main>
+    
+    <script>const u=new URLSearchParams(window.location.search);if(u.get('generated'))document.getElementById('gencode').innerText=u.get('generated');</script>
+</body>
+</html>

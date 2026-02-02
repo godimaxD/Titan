@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <title>Invoice #{{.ID}}</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script>
+        if (localStorage.theme === 'light') document.documentElement.classList.remove('dark');
+        else document.documentElement.classList.add('dark');
+    </script>
+    <style>
+        body { transition: background 0.3s, color 0.3s; }
+        
+        /* LIGHT MODE */
+        body { background: linear-gradient(135deg, #CCCCFF 0%, #7DF9FF 100%); color: black; }
+        .glass { background: rgba(255,255,255,0.9); border: 1px solid black; box-shadow: 12px 12px 0px rgba(0,0,0,0.15); backdrop-filter: blur(20px); }
+        .receipt-paper { background: #fff; color: #000; border: 2px solid #000; }
+        
+        /* DARK MODE */
+        .dark body { background: #020204; color: white; }
+        .dark .glass { background: rgba(20,20,26,0.9); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
+        .dark .receipt-paper { background: #111; color: #fff; border: 1px solid #333; }
+
+        .hidden-screen { display: none !important; }
+        .flex-screen { display: flex !important; }
+        @keyframes pulse-dot { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
+        .dot { width: 8px; height: 8px; background: #4ade80; border-radius: 50%; animation: pulse-dot 1.5s infinite; }
+
+        @media print {
+            body * { visibility: hidden; }
+            #receipt-modal, #receipt-modal * { visibility: visible; }
+            #receipt-modal { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: white; color: black; border: none; }
+            .no-print { display: none !important; }
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center h-screen relative overflow-hidden font-sans p-4">
+    <div class="absolute w-[600px] h-[600px] bg-indigo-900/20 rounded-full blur-[120px] -top-20 -left-20 pointer-events-none"></div>
+
+    <div class="absolute top-8 left-8 z-50 no-print">
+        <a href="/deposit" class="flex items-center gap-2 text-gray-500 dark:text-gray-400 hover:text-black dark:hover:text-white transition group">
+            <span class="font-bold text-sm">Cancel / Back</span>
+        </a>
+    </div>
+
+    <!-- MAIN CONTAINER (Unified Glass Box) -->
+    <div class="glass w-full max-w-lg rounded-3xl relative z-10 overflow-hidden transition-all duration-300">
+        
+        <!-- 1. PENDING VIEW -->
+        <div id="pending-view" class="p-10 text-center">
+            <h1 class="text-3xl font-black mb-1">INVOICE</h1>
+            <p class="text-xs opacity-50 font-mono tracking-widest uppercase mb-8">ID: {{.ID}}</p>
+
+            <div class="text-5xl font-mono font-bold mb-2" id="timer-display">00:00</div>
+            <div class="text-[10px] opacity-60 uppercase tracking-[0.2em] mb-8 animate-pulse">Time Remaining</div>
+
+            <div class="bg-white p-4 rounded-xl inline-block mb-8 shadow-lg border border-gray-200">
+                <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data={{.Address}}" alt="QR">
+            </div>
+
+            <div class="bg-black/5 dark:bg-black/40 rounded-xl p-5 border border-black/10 dark:border-white/10 mb-6 text-left">
+                <div class="mb-4 pb-4 border-b border-black/5 dark:border-white/5">
+                    <span class="text-[10px] font-bold uppercase block mb-1 opacity-50">Total Amount</span>
+                    <div class="flex items-end justify-between">
+                        <span class="text-3xl font-bold text-green-600 dark:text-green-400 font-mono tracking-tight">{{.Amount}} TRX</span>
+                        <span class="text-sm font-bold opacity-60">(${{.UsdAmount}})</span>
+                    </div>
+                </div>
+                <div>
+                    <span class="text-[10px] font-bold uppercase block mb-1 opacity-50">Wallet Address</span>
+                    <div class="flex gap-2">
+                        <code class="block flex-1 bg-white dark:bg-black/50 p-3 rounded-lg text-xs text-indigo-600 dark:text-indigo-300 font-mono break-all border border-black/10 dark:border-white/5">{{.Address}}</code>
+                        <button onclick="navigator.clipboard.writeText('{{.Address}}');alert('Copied!')" class="bg-black dark:bg-white text-white dark:text-black px-4 rounded-lg font-bold text-xs uppercase hover:opacity-80 transition">Copy</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="flex items-center justify-center gap-2 text-xs font-mono opacity-60">
+                <div class="dot"></div>
+                <span id="status-text">LISTENING FOR NETWORK...</span>
+            </div>
+        </div>
+
+        <!-- 2. PAID VIEW (Inside the same box) -->
+        <div id="paid-view" class="hidden-screen flex-col items-center justify-center p-12 text-center h-full min-h-[500px]">
+            <div class="w-28 h-28 bg-green-500 text-white rounded-full flex items-center justify-center mb-8 shadow-2xl animate-bounce mx-auto">
+                <svg class="w-14 h-14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="4" d="M5 13l4 4L19 7"/></svg>
+            </div>
+            <h2 class="text-4xl font-black mb-3 tracking-tight">SUCCESS</h2>
+            <p class="opacity-60 text-sm mb-10 leading-relaxed max-w-xs mx-auto">Transaction confirmed by blockchain.<br>Funds have been added to your balance.</p>
+            
+            <div class="space-y-3 w-full">
+                <button onclick="showReceipt()" class="w-full bg-black dark:bg-white text-white dark:text-black font-bold py-4 rounded-xl hover:opacity-80 transition text-sm tracking-widest uppercase flex items-center justify-center gap-3 shadow-lg">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    Download Receipt
+                </button>
+                <a href="/dashboard" class="block w-full border border-black/20 dark:border-white/20 font-bold py-4 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition text-sm tracking-widest uppercase">
+                    Return to Dashboard
+                </a>
+            </div>
+        </div>
+
+        <!-- 3. REJECTED VIEW -->
+        <div id="rejected-view" class="hidden-screen flex-col items-center justify-center p-12 text-center h-full min-h-[500px]">
+             <div class="w-28 h-28 bg-red-600 text-white rounded-full flex items-center justify-center mb-8 shadow-2xl mx-auto">
+                <svg class="w-14 h-14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="4" d="M6 18L18 6M6 6l12 12"/></svg>
+            </div>
+            <h2 class="text-4xl font-black mb-3">REJECTED</h2>
+            <p class="opacity-60 text-sm mb-10 max-w-xs mx-auto">The transaction was declined by the system. Please contact support.</p>
+            <a href="/deposit" class="block w-full border border-black/20 dark:border-white/20 font-bold py-4 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition text-sm tracking-widest uppercase">Try Again</a>
+        </div>
+    </div>
+
+    <!-- RECEIPT MODAL -->
+    <div id="receipt-modal" class="fixed inset-0 z-[100] hidden-screen flex-col items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+        <div class="receipt-paper w-full max-w-sm p-8 relative shadow-2xl">
+            <div class="border-b-2 border-dashed border-current pb-4 mb-4 text-center">
+                <h1 class="text-2xl font-black tracking-widest uppercase">TITAN NETWORK</h1>
+                <p class="text-[10px] font-mono uppercase opacity-70">Official Transaction Receipt</p>
+            </div>
+            <div class="space-y-3 font-mono text-xs mb-6">
+                <div class="flex justify-between"><span>STATUS:</span><span class="font-bold">PAID</span></div>
+                <div class="flex justify-between"><span>DATE:</span><span id="r-date"></span></div>
+                <div class="flex justify-between"><span>INVOICE ID:</span><span>{{.ID}}</span></div>
+                <div class="flex justify-between"><span>METHOD:</span><span>TRC20 (TRON)</span></div>
+                <div class="border-b border-dashed border-current my-2"></div>
+                <div class="flex justify-between text-sm font-bold"><span>AMOUNT:</span><span>${{.UsdAmount}}</span></div>
+                <div class="flex justify-between text-[10px] opacity-70"><span>TRX PAID:</span><span>{{.Amount}} TRX</span></div>
+            </div>
+            <div class="text-center pt-4 border-t-2 border-dashed border-current">
+                <img src="https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=TITAN-INV-{{.ID}}" class="mx-auto mb-2 opacity-80 mix-blend-multiply dark:mix-blend-normal">
+                <p class="text-[8px] font-mono opacity-60">Auth: {{.Address}}</p>
+            </div>
+            <div class="absolute -bottom-16 left-0 w-full flex gap-2 no-print">
+                <button onclick="window.print()" class="flex-1 bg-white text-black font-bold py-3 rounded shadow hover:bg-gray-200 text-xs uppercase">Download PDF</button>
+                <button onclick="closeReceipt()" class="flex-1 bg-red-600 text-white font-bold py-3 rounded shadow hover:bg-red-500 text-xs uppercase">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let seconds = parseInt("{{.ExpiresInSeconds}}") || 0;
+        let currentStatus = "{{.Status}}";
+        const invoiceID = "{{.ID}}";
+        document.getElementById('r-date').innerText = new Date().toLocaleString();
+
+        if (currentStatus === 'Paid') showPaid();
+        if (currentStatus === 'Rejected') showRejected();
+
+        const timerEl = document.getElementById('timer-display');
+        const timerInt = setInterval(() => {
+            if(seconds > 0) {
+                seconds--;
+                const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+                const s = (seconds % 60).toString().padStart(2, '0');
+                timerEl.innerText = `${m}:${s}`;
+            } else {
+                clearInterval(timerInt);
+                if(currentStatus === 'Pending') window.location.reload(); 
+            }
+        }, 1000);
+
+        const statusText = document.getElementById('status-text');
+        setInterval(async () => {
+            if(currentStatus !== 'Pending') return;
+            try {
+                const res = await fetch(`/api/deposit/check?id=${invoiceID}&_=${Date.now()}`);
+                const data = await res.json();
+                statusText.innerText = "CHECKING NETWORK... " + new Date().getSeconds();
+                if (data.status === 'Paid') { currentStatus = 'Paid'; showPaid(); } 
+                else if (data.status === 'Rejected') { currentStatus = 'Rejected'; showRejected(); } 
+                else if (data.status === 'Expired') { window.location.reload(); }
+            } catch (err) { console.error(err); }
+        }, 2000);
+
+        function showPaid() {
+            document.getElementById('pending-view').style.display = 'none';
+            document.getElementById('paid-view').classList.remove('hidden-screen');
+            document.getElementById('paid-view').classList.add('flex-screen');
+        }
+        function showRejected() {
+            document.getElementById('pending-view').style.display = 'none';
+            document.getElementById('rejected-view').classList.remove('hidden-screen');
+            document.getElementById('rejected-view').classList.add('flex-screen');
+        }
+        function showReceipt() {
+            document.getElementById('receipt-modal').classList.remove('hidden-screen');
+            document.getElementById('receipt-modal').classList.add('flex-screen');
+        }
+        function closeReceipt() {
+            document.getElementById('receipt-modal').classList.add('hidden-screen');
+            document.getElementById('receipt-modal').classList.remove('flex-screen');
+        }
+    </script>
+</body>
+</html>

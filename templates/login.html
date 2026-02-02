@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Access Terminal | TITAN</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="//unpkg.com/alpinejs" defer></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+    <style>
+        body { background: #020204; color: #EAEAEB; font-family: 'Inter', sans-serif; overflow: hidden; }
+        .glass-panel { 
+            background: rgba(20,20,26,0.6); 
+            backdrop-filter: blur(20px); 
+            border: 1px solid rgba(255,255,255,0.08); 
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); 
+        }
+        .input-field {
+            background: rgba(0,0,0,0.4);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: white;
+            font-family: 'Inter';
+            transition: all 0.3s;
+        }
+        .input-field:focus {
+            border-color: #6366f1;
+            box-shadow: 0 0 0 4px rgba(99,102,241,0.1);
+            background: rgba(0,0,0,0.6);
+            outline: none;
+        }
+        .submit-btn {
+            background: #6366f1;
+            color: white;
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+        .submit-btn:hover { background: #4f46e5; transform: translateY(-1px); 
+            box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.3); }
+        .submit-btn:active { transform: translateY(0); }
+        .bg-grid { 
+            background-size: 40px 40px; 
+            background-image: linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            mask-image: radial-gradient(circle at center, black, transparent 80%);
+        }
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="flex items-center justify-center h-screen relative" x-data="{ mode: 'login' }">
+    
+    <!-- Background FX -->
+    <div class="absolute inset-0 bg-grid pointer-events-none"></div>
+    <div class="absolute w-[600px] h-[600px] bg-indigo-600/10 rounded-full blur-[120px] -top-20 -left-20 animate-pulse duration-[5000ms]"></div>
+    <div class="absolute w-[400px] h-[400px] bg-purple-600/10 rounded-full blur-[100px] bottom-0 right-0"></div>
+
+    <!-- Main Card -->
+    <div class="glass-panel w-full max-w-sm p-8 rounded-3xl relative z-10 mx-4">
+        
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-2xl font-black tracking-tight text-white mb-1" x-text="mode === 'login' ? 'TITAN NET' : 'TOKEN ENTRY'"></h1>
+            <p class="text-gray-500 text-xs font-mono uppercase tracking-widest" x-text="mode === 'login' ? 'Authentication Required' : 'Redeem Access Key'"></p>
+        </div>
+
+        <!-- 1. LOGIN FORM -->
+        <form x-show="mode === 'login'" action="/login" method="POST" class="space-y-4">
+<input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
+            <div>
+                <label class="block text-[10px] font-bold uppercase text-gray-500 mb-1 ml-1">Identity</label>
+                <input name="username" class="input-field w-full px-4 py-3 rounded-xl text-sm font-bold placeholder-gray-600" placeholder="Username">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold uppercase text-gray-500 mb-1 ml-1">Keyphrase</label>
+                <input type="password" name="password" class="input-field w-full px-4 py-3 rounded-xl text-sm font-bold placeholder-gray-600" placeholder="••••••••">
+            </div>
+            <button class="submit-btn w-full py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest mt-2">Enter System</button>
+        </form>
+
+        <!-- 2. TOKEN FORM (NEW) -->
+        <form x-show="mode === 'token'" x-cloak action="/redeem-login" method="POST" class="space-y-4">
+<input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
+            <div>
+                <label class="block text-[10px] font-bold uppercase text-gray-500 mb-1 ml-1">Access Token</label>
+                <input name="code" class="input-field w-full px-4 py-3 rounded-xl text-center font-mono tracking-wider text-sm font-bold placeholder-gray-600" placeholder="TN-XXXX-XXXX">
+            </div>
+            <button class="submit-btn w-full py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest mt-2 bg-green-600 hover:bg-green-500">Authenticate Token</button>
+        </form>
+
+        <!-- Footer Toggles -->
+        <div class="mt-8 pt-6 border-t border-white/5 text-center flex justify-between items-center px-2">
+            <a href="/register" class="text-xs text-gray-500 hover:text-white transition">No Account? <span class="text-indigo-400 font-bold">Initialize</span></a>
+            
+            <!-- Toggle Link -->
+            <button @click="mode = 'token'" x-show="mode === 'login'" class="text-xs text-gray-400 hover:text-white transition font-mono border-b border-dashed border-gray-600 pb-0.5 hover:border-white">Use Token</button>
+            <button @click="mode = 'login'" x-show="mode === 'token'" x-cloak class="text-xs text-gray-400 hover:text-white transition font-mono border-b border-dashed border-gray-600 pb-0.5 hover:border-white">Back to Login</button>
+        </div>
+    </div>
+
+    <!-- Error Toast -->
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        if(params.get('err')) {
+            const errType = params.get('err');
+            let msg = 'ACCESS DENIED: Invalid Credentials';
+            if(errType === 'invalid_code') msg = 'INVALID TOKEN CODE';
+            
+            const d = document.createElement('div');
+            d.className = 'fixed top-6 bg-red-500/10 border border-red-500/50 text-red-400 px-6 py-3 rounded-xl text-xs font-bold shadow-xl backdrop-blur-md animate-bounce';
+            d.innerText = msg;
+            document.body.appendChild(d);
+            setTimeout(()=>d.remove(), 4000);
+        }
+    </script>
+</body>
+</html>
