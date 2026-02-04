@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"mime/multipart"
@@ -24,7 +25,10 @@ type SessionInfo struct {
 	UserAgent string `json:"user_agent"`
 	IP        string `json:"ip"`
 	Expires   int64  `json:"expires"`
+	IsCurrent bool   `json:"is_current"`
 }
+
+var captchaVerify = captcha.VerifyString
 
 // --- HANDLERS ---
 
@@ -47,7 +51,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		match, _ := comparePasswordAndHash(p, dbHash)
 		if err == nil && match {
 			db.Exec("DELETE FROM sessions WHERE username=?", u)
-			token := createSession(u)
+			token := createSession(u, r)
 			if token == "" {
 				http.Redirect(w, r, "/login?err=session", 302)
 				return
@@ -114,23 +118,38 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 		captchaId := r.FormValue("captchaId")
 		captchaSolution := r.FormValue("captcha")
 
-		if !captcha.VerifyString(captchaId, captchaSolution) {
+		if !captchaVerify(captchaId, captchaSolution) {
 			http.Redirect(w, r, "/register?err=captcha_wrong", 302)
 			return
 		}
 
-		refCode := Sanitize(r.FormValue("ref"))
+		refCode := strings.TrimSpace(Sanitize(r.FormValue("ref")))
 		var count int
 		db.QueryRow("SELECT count(*) FROM users WHERE username = ?", u).Scan(&count)
 		if count == 0 {
 			hashedPass, _ := generatePasswordHash(p)
-			myRefCode := generateToken()[:8]
+			myRefCode, err := generateUniqueRefCode()
+			if err != nil {
+				http.Redirect(w, r, "/register?err=db", 302)
+				return
+			}
 			var validRef string
 			if refCode != "" {
-				db.QueryRow("SELECT username FROM users WHERE ref_code=?", refCode).Scan(&validRef)
+				if err := db.QueryRow("SELECT username FROM users WHERE ref_code=?", refCode).Scan(&validRef); err != nil {
+					if err == sql.ErrNoRows {
+						http.Redirect(w, r, "/register?err=bad_ref", 302)
+						return
+					}
+					http.Redirect(w, r, "/register?err=db", 302)
+					return
+				}
 			}
-			db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", u, hashedPass, "Free", "Active", generateToken(), "u#"+generateID(), 0.0, myRefCode, validRef, 0.0)
-			token := createSession(u)
+			if validRef == u {
+				http.Redirect(w, r, "/register?err=bad_ref", 302)
+				return
+			}
+			db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", u, hashedPass, "Free", "Active", generateToken(), "u#"+generateID(), 0.0, myRefCode, validRef, 0.0, 0)
+			token := createSession(u, r)
 			if token == "" {
 				http.Redirect(w, r, "/register?err=session", 302)
 				return
@@ -288,7 +307,8 @@ func handlePurchase(w http.ResponseWriter, r *http.Request) {
 	}
 	var balance float64
 	var referrer string
-	err = tx.QueryRow("SELECT balance, referred_by FROM users WHERE username=?", username).Scan(&balance, &referrer)
+	var refPaid int
+	err = tx.QueryRow("SELECT balance, referred_by, ref_paid FROM users WHERE username=?", username).Scan(&balance, &referrer, &refPaid)
 	if err != nil {
 		http.Redirect(w, r, "/market?err=user", 302)
 		return
@@ -304,9 +324,13 @@ func handlePurchase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if referrer != "" {
+	if referrer != "" && referrer != username && refPaid == 0 {
 		kickback := roundFloat(p.Price*cfg.ReferralPercent, 2)
 		if _, err := tx.Exec("UPDATE users SET balance=balance+?, ref_earnings=ref_earnings+? WHERE username=?", kickback, kickback, referrer); err != nil {
+			http.Redirect(w, r, "/market?err=db", 302)
+			return
+		}
+		if _, err := tx.Exec("UPDATE users SET ref_paid=1 WHERE username=?", username); err != nil {
 			http.Redirect(w, r, "/market?err=db", 302)
 			return
 		}
@@ -616,7 +640,7 @@ func handlePage(pName string) http.HandlerFunc {
 		}
 		csrfToken := ensureCSRFCookie(w, r)
 		var u User
-		err := db.QueryRow("SELECT username, plan, status, api_token, user_id, balance, ref_code, ref_earnings FROM users WHERE username=?", username).Scan(&u.Username, &u.Plan, &u.Status, &u.ApiToken, &u.UserID, &u.Balance, &u.RefCode, &u.RefEarnings)
+		err := db.QueryRow("SELECT username, plan, status, api_token, user_id, balance, ref_code, ref_earnings, referred_by FROM users WHERE username=?", username).Scan(&u.Username, &u.Plan, &u.Status, &u.ApiToken, &u.UserID, &u.Balance, &u.RefCode, &u.RefEarnings, &u.ReferredBy)
 		if err != nil {
 			http.Redirect(w, r, "/logout", 302)
 			return
@@ -677,6 +701,7 @@ func handlePage(pName string) http.HandlerFunc {
 			MethodsJSON:      mBytes,
 			Methods:          methodsMap,
 			RefCode:          u.RefCode,
+			ReferredBy:       u.ReferredBy,
 			RefEarnings:      u.RefEarnings,
 			UsernameInitials: usernameInitials(u.Username),
 			ApiToken:         u.ApiToken,
@@ -1422,15 +1447,19 @@ func handleRedeemLogin(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?err=1", http.StatusFound)
 		return
 	}
-	refCode := generateToken()[:8]
+	refCode, err := generateUniqueRefCode()
+	if err != nil {
+		http.Redirect(w, r, "/login?err=1", http.StatusFound)
+		return
+	}
 	apiTok := generateToken()
 	userID := "u#" + generateID()
 
 	// Insert user; on rare collision, retry with a different id once
-	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings) VALUES (?, ?, ?, 'Active', ?, ?, 0.0, ?, '', 0.0)", username, hash, plan, apiTok, userID, refCode); err != nil {
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, ?, 'Active', ?, ?, 0.0, ?, '', 0.0, 0)", username, hash, plan, apiTok, userID, refCode); err != nil {
 		// Try one more time
 		username = "redeem-" + generateID()
-		if _, err2 := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings) VALUES (?, ?, ?, 'Active', ?, ?, 0.0, ?, '', 0.0)", username, hash, plan, apiTok, userID, refCode); err2 != nil {
+		if _, err2 := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, ?, 'Active', ?, ?, 0.0, ?, '', 0.0, 0)", username, hash, plan, apiTok, userID, refCode); err2 != nil {
 			http.Redirect(w, r, "/login?err=1", http.StatusFound)
 			return
 		}
@@ -1439,7 +1468,7 @@ func handleRedeemLogin(w http.ResponseWriter, r *http.Request) {
 	// Mark code used only after user has been created
 	_, _ = db.Exec("UPDATE redeem_codes SET used=1 WHERE code=?", code)
 
-	token := createSession(username)
+	token := createSession(username, r)
 	if token == "" {
 		http.Redirect(w, r, "/login?err=session", http.StatusFound)
 		return
@@ -1516,6 +1545,13 @@ func handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if c, err := r.Cookie(sessionCookieName); err == nil && c.Value != "" {
+		if _, err := db.Exec("DELETE FROM sessions WHERE username=? AND token<>?", username, c.Value); err != nil {
+			http.Error(w, "DB Error", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
 }
 
@@ -1561,6 +1597,11 @@ func handleListSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	current := ""
+	if c, err := r.Cookie(sessionCookieName); err == nil {
+		current = c.Value
+	}
+
 	rows, err := db.Query("SELECT token, COALESCE(created_at,0), COALESCE(last_seen,0), COALESCE(user_agent,''), COALESCE(ip,''), expires FROM sessions WHERE username=? ORDER BY COALESCE(last_seen,0) DESC", username)
 	if err != nil {
 		http.Error(w, "DB Error", http.StatusInternalServerError)
@@ -1572,6 +1613,7 @@ func handleListSessions(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var s SessionInfo
 		_ = rows.Scan(&s.Token, &s.CreatedAt, &s.LastSeen, &s.UserAgent, &s.IP, &s.Expires)
+		s.IsCurrent = s.Token == current
 		out = append(out, s)
 	}
 	json.NewEncoder(w).Encode(out)

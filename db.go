@@ -20,7 +20,7 @@ func initDB() {
 	tables := []string{
 		`CREATE TABLE IF NOT EXISTS users (
 	username TEXT PRIMARY KEY, password TEXT, plan TEXT, status TEXT, api_token TEXT, user_id TEXT, balance REAL DEFAULT 0,
-	ref_code TEXT, referred_by TEXT, ref_earnings REAL DEFAULT 0
+	ref_code TEXT, referred_by TEXT, ref_earnings REAL DEFAULT 0, ref_paid INTEGER DEFAULT 0
 	);`,
 		`CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, username TEXT, expires INTEGER, created_at INTEGER, last_seen INTEGER, user_agent TEXT, ip TEXT);`,
 		`CREATE TABLE IF NOT EXISTS tickets (id TEXT PRIMARY KEY, user_id TEXT, category TEXT, subject TEXT, status TEXT, last_update DATETIME, messages TEXT);`,
@@ -43,6 +43,7 @@ func initDB() {
 	db.Exec("ALTER TABLE users ADD COLUMN ref_code TEXT;")
 	db.Exec("ALTER TABLE users ADD COLUMN referred_by TEXT;")
 	db.Exec("ALTER TABLE users ADD COLUMN ref_earnings REAL DEFAULT 0;")
+	db.Exec("ALTER TABLE users ADD COLUMN ref_paid INTEGER DEFAULT 0;")
 	// Session metadata
 	db.Exec("ALTER TABLE sessions ADD COLUMN created_at INTEGER;")
 	db.Exec("ALTER TABLE sessions ADD COLUMN last_seen INTEGER;")
@@ -77,7 +78,7 @@ func initDB() {
 		if err != nil {
 			log.Fatal("Failed to hash admin password:", err)
 		}
-		_, err = db.Exec("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", "admin", hashedPass, "God", "Active", "titan_root", "user#0001", 999.0, "ADMIN", "", 0.0)
+		_, err = db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", "admin", hashedPass, "God", "Active", "titan_root", "user#0001", 999.0, "ADMIN", "", 0.0, 0)
 		if err != nil {
 			log.Fatal("Failed to insert admin user:", err)
 		}

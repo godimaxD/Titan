@@ -68,6 +68,7 @@ type PageData struct {
 	Username, UserPlan, CurrentPage, UsernameInitials, ApiToken, UserIDDisplay string
 	UserBalance, RefEarnings                                                   float64
 	RefCode                                                                    string
+	ReferredBy                                                                 string
 	IsAdmin, AutoConfirm                                                       bool
 	Announcements                                                              []Announcement
 	MethodsJSON                                                                string
