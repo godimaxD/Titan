@@ -16,10 +16,10 @@ var (
 	currentRPS, requestCounter uint64
 	startTime                  time.Time
 
-	limiterMu     sync.Mutex
-	rateLimiter   = make(map[string]*RateLimitEntry)
-	clients       = make(map[string]*ClientLimiter)
-	clientsMu     sync.Mutex
+	limiterMu   sync.Mutex
+	rateLimiter = make(map[string]*RateLimitEntry)
+	clients     = make(map[string]*ClientLimiter)
+	clientsMu   sync.Mutex
 
 	// NOTE: Methods are now loaded from the database (table: methods)
 	// so the attack panel always reflects what admin configured.

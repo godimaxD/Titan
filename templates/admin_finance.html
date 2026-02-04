@@ -14,7 +14,7 @@
                                 <td class="py-3 text-indigo-400">{{.Amount}}</td>
                                 <td class="py-3 text-right">
                                     {{if eq .Status "Pending"}}
-                                    <div class="inline-flex"><a href="/api/admin/deposit/action?id={{.ID}}&action=accept" class="text-green-400 hover:text-white px-1">✓</a><a href="/api/admin/deposit/action?id={{.ID}}&action=reject" class="text-red-400 hover:text-white px-1">✕</a></div>
+                                    <div class="inline-flex"><form action="/api/admin/deposit/action" method="POST"><input type="hidden" name="csrf_token" value="{{$.CsrfToken}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="action" value="confirm"><button class="text-green-400 hover:text-white px-1" type="submit">✓</button></form><form action="/api/admin/deposit/action" method="POST"><input type="hidden" name="csrf_token" value="{{$.CsrfToken}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="action" value="cancel"><button class="text-red-400 hover:text-white px-1" type="submit">✕</button></form></div>
                                     {{else}}<span class="status-badge">{{.Status}}</span>{{end}}
                                 </td>
                             </tr>

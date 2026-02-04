@@ -9,7 +9,7 @@
         <div class="grid grid-cols-2 gap-6">
             <div class="glass-panel rounded-xl p-6">
                 <h3 class="text-sm font-bold text-white uppercase tracking-widest mb-6 border-b border-white/5 pb-4">Quick Gen</h3>
-                <form action="/api/admin/gen-code" method="POST" class="space-y-3">
+                <form action="/api/admin/gen-code" method="POST" class="space-y-3"><input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
                     <select name="plan" class="w-full glass-input p-2 rounded-lg text-xs bg-black text-gray-300"><option value="Free">Free License</option><option value="Basic">Basic License</option><option value="Pro">Pro License</option><option value="God">God License</option></select>
                     <button class="w-full bg-white/5 text-white py-2 rounded-lg text-xs font-bold hover:bg-white/10 border border-white/10">GENERATE KEY</button>
                 </form>

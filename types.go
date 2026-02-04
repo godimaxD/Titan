@@ -108,6 +108,7 @@ type AdminData struct {
 	CurrentView                              string
 	Blacklist                                []BlacklistEntry
 	ActiveAttacksList                        []AttackData
+	CsrfToken                                string
 }
 
 type BlacklistEntry struct{ Target, Reason, Date string }
@@ -125,4 +126,7 @@ type RateBucket struct {
 	mu                           sync.Mutex
 }
 
-type RateLimitEntry struct{ Count int; LastReset int64 }
+type RateLimitEntry struct {
+	Count     int
+	LastReset int64
+}

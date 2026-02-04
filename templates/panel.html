@@ -373,7 +373,7 @@ async function fire(e){
     try {
         const r = await fetch('/api/attack', {
             method:'POST',
-            headers: {'Content-Type':'application/json'},
+            headers: {'Content-Type':'application/json', 'X-CSRF-Token': csrfToken},
             body:JSON.stringify({target:t, port:p, time:tm, method:m, concurrency:c})
         });
         
@@ -390,6 +390,8 @@ async function fire(e){
     
     setTimeout(()=>{ b.disabled=false; b.innerText=ogText; }, 1000);
 }
+
+const csrfToken = '{{.CsrfToken}}';
 
 async function updateAttacks() {
     try {
@@ -423,8 +425,8 @@ async function updateAttacks() {
     } catch(e) {}
 }
 
-async function stopAttack(id) { await fetch('/api/attack/stop?id=' + id); updateAttacks(); }
-async function stopAll() { await fetch('/api/attack/stopAll'); updateAttacks(); }
+async function stopAttack(id) { await fetch('/api/attack/stop', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded', 'X-CSRF-Token': csrfToken}, body:'id=' + encodeURIComponent(id)}); updateAttacks(); }
+async function stopAll() { await fetch('/api/attack/stopAll', {method:'POST', headers:{'X-CSRF-Token': csrfToken}}); updateAttacks(); }
 
 setInterval(updateAttacks, 1000);
 updateAttacks();
