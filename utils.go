@@ -157,6 +157,19 @@ func comparePasswordAndHash(password, hash string) (bool, error) {
 }
 
 func generateToken() string { b := make([]byte, 16); rand.Read(b); return fmt.Sprintf("%x", b) }
+func generateUniqueRefCode() (string, error) {
+	for i := 0; i < 5; i++ {
+		code := generateToken()[:8]
+		var count int
+		if err := db.QueryRow("SELECT count(*) FROM users WHERE ref_code=?", code).Scan(&count); err != nil {
+			return "", err
+		}
+		if count == 0 {
+			return code, nil
+		}
+	}
+	return "", fmt.Errorf("unable to generate unique ref code")
+}
 func generateID() string {
 	n, _ := rand.Int(rand.Reader, big.NewInt(99999))
 	return fmt.Sprintf("%d", n.Int64()+10000)

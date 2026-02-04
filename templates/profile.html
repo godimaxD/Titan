@@ -116,6 +116,7 @@
                     <div class="bg-white/5 px-4 py-3 rounded-xl text-center"><div class="text-[10px] text-gray-500 font-bold uppercase">Ref Count</div><div class="text-white font-bold">{{.RefCount}}</div></div>
                     <div class="bg-white/5 px-4 py-3 rounded-xl text-center"><div class="text-[10px] text-gray-500 font-bold uppercase">Ref Earn</div><div class="text-white font-bold">${{.RefEarnings}}</div></div>
                     <div class="bg-white/5 px-4 py-3 rounded-xl text-center"><div class="text-[10px] text-gray-500 font-bold uppercase">Status</div><div class="text-white font-bold">Active</div></div>
+                    <div class="bg-white/5 px-4 py-3 rounded-xl text-center"><div class="text-[10px] text-gray-500 font-bold uppercase">Referred By</div><div class="text-white font-bold">{{if .ReferredBy}}{{.ReferredBy}}{{else}}None{{end}}</div></div>
                 </div>
 
                 <div class="mt-6">
@@ -172,8 +173,13 @@
                             <template x-for="s in sessions" :key="s.token">
                                 <div class="p-4 border-b border-white/10 flex items-center justify-between gap-3">
                                     <div class="min-w-0">
-                                        <div class="text-xs font-bold text-white truncate"><span class="text-gray-500">Token:</span> <span class="font-mono" x-text="s.token"></span></div>
+                                        <div class="text-xs font-bold text-white truncate flex items-center gap-2">
+                                            <span class="text-gray-500">Token:</span>
+                                            <span class="font-mono" x-text="s.token"></span>
+                                            <span class="text-[10px] uppercase px-2 py-0.5 rounded-full border border-white/10 text-gray-400" x-show="s.is_current">Current</span>
+                                        </div>
                                         <div class="text-[10px] text-gray-500 mt-1">Last Seen: <span x-text="fmtTime(s.last_seen)"></span> · Expires: <span x-text="fmtTime(s.expires)"></span></div>
+                                        <div class="text-[10px] text-gray-500 mt-1">Device: <span class="text-gray-300" x-text="s.user_agent || 'Unknown'"></span> · IP: <span class="text-gray-300" x-text="s.ip || 'Unknown'"></span></div>
                                     </div>
                                     <button class="px-3 py-2 rounded-lg border border-white/10 text-xs font-bold hover:bg-white/10" @click="revokeSession(s.token)">REVOKE</button>
                                 </div>
