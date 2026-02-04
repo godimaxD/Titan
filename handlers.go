@@ -33,8 +33,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == "POST" {
-		c, err := r.Cookie("csrf_token")
-		if err != nil || c.Value == "" || c.Value != r.FormValue("csrf_token") {
+		if !validateCSRF(r) {
 			http.Error(w, "CSRF Validation Failed", 403)
 			return
 		}
@@ -42,7 +41,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		u := Sanitize(r.FormValue("username"))
 		p := r.FormValue("password")
 		var dbHash string
-		err = db.QueryRow("SELECT password FROM users WHERE username=?", u).Scan(&dbHash)
+		err := db.QueryRow("SELECT password FROM users WHERE username=?", u).Scan(&dbHash)
 		match, _ := comparePasswordAndHash(p, dbHash)
 		if err == nil && match {
 			db.Exec("DELETE FROM sessions WHERE username=?", u)
@@ -64,8 +63,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSecurityHeaders(w)
-	token := generateToken()
-	http.SetCookie(w, &http.Cookie{Name: "csrf_token", Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	token := ensureCSRFCookie(w, r)
 	renderTemplate(w, "login.html", PageData{CsrfToken: token})
 }
 
@@ -104,8 +102,7 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == "POST" {
-		c, err := r.Cookie("csrf_token")
-		if err != nil || c.Value == "" || c.Value != r.FormValue("csrf_token") {
+		if !validateCSRF(r) {
 			http.Error(w, "CSRF Validation Failed", 403)
 			return
 		}
@@ -145,8 +142,7 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSecurityHeaders(w)
-	token := generateToken()
-	http.SetCookie(w, &http.Cookie{Name: "csrf_token", Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	token := ensureCSRFCookie(w, r)
 	captchaId := captcha.New()
 	renderTemplate(w, "register.html", PageData{CaptchaId: captchaId, CsrfToken: token})
 }
@@ -155,6 +151,14 @@ func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
 	username, ok := validateSession(r)
 	if !ok {
 		http.Redirect(w, r, "/login", 302)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
 		return
 	}
 
@@ -258,6 +262,14 @@ func handlePurchase(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", 302)
 		return
 	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		return
+	}
 	id, _ := strconv.Atoi(r.URL.Query().Get("id"))
 	tx, err := db.Begin()
 	if err != nil {
@@ -324,13 +336,14 @@ func handleAdminPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/dashboard", 302)
 		return
 	}
+	csrfToken := ensureCSRFCookie(w, r)
 
 	view := r.URL.Query().Get("view")
 	if view == "" {
 		view = "overview"
 	}
 
-	ad := AdminData{Username: "Admin", Uptime: getUptime(), CurrentView: view, RPS: int(atomic.LoadUint64(&currentRPS))}
+	ad := AdminData{Username: "Admin", Uptime: getUptime(), CurrentView: view, RPS: int(atomic.LoadUint64(&currentRPS)), CsrfToken: csrfToken}
 	db.QueryRow("SELECT count(*) FROM users").Scan(&ad.TotalUsers)
 	ad.RunningAttacks = len(activeAttacks)
 
@@ -552,6 +565,7 @@ func handlePage(pName string) http.HandlerFunc {
 			http.Redirect(w, r, "/login", 302)
 			return
 		}
+		csrfToken := ensureCSRFCookie(w, r)
 		var u User
 		err := db.QueryRow("SELECT username, plan, status, api_token, user_id, balance, ref_code, ref_earnings FROM users WHERE username=?", username).Scan(&u.Username, &u.Plan, &u.Status, &u.ApiToken, &u.UserID, &u.Balance, &u.RefCode, &u.RefEarnings)
 		if err != nil {
@@ -622,7 +636,7 @@ func handlePage(pName string) http.HandlerFunc {
 		if len(u.Username) > 1 {
 			initials = string(u.Username[0:2])
 		}
-		pd := PageData{Username: u.Username, UserPlan: u.Plan, UserBalance: u.Balance, CurrentPage: strings.TrimSuffix(pName, ".html"), Products: products, Deposits: deposits, Tickets: myTickets, CurrentTicket: activeTicket, MethodsJSON: string(mBytes), Methods: methods, RefCode: u.RefCode, RefEarnings: u.RefEarnings, UsernameInitials: strings.ToUpper(initials), ApiToken: u.ApiToken, RefCount: refCount, MaxTime: limits.MaxTime, IsAdmin: (u.Username == "admin")}
+		pd := PageData{Username: u.Username, UserPlan: u.Plan, UserBalance: u.Balance, CurrentPage: strings.TrimSuffix(pName, ".html"), Products: products, Deposits: deposits, Tickets: myTickets, CurrentTicket: activeTicket, MethodsJSON: string(mBytes), Methods: methods, RefCode: u.RefCode, RefEarnings: u.RefEarnings, UsernameInitials: strings.ToUpper(initials), ApiToken: u.ApiToken, RefCount: refCount, MaxTime: limits.MaxTime, IsAdmin: (u.Username == "admin"), CsrfToken: csrfToken}
 		renderTemplate(w, pName, pd)
 	}
 }
@@ -667,7 +681,15 @@ func apiStop(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	id := r.URL.Query().Get("id")
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		return
+	}
+	id := r.FormValue("id")
 	if id == "" {
 		http.Error(w, "Missing id", http.StatusBadRequest)
 		return
@@ -697,6 +719,14 @@ func apiStopAll(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		return
+	}
 	stopped := 0
 	mu.Lock()
 	for id, atk := range activeAttacks {
@@ -718,8 +748,16 @@ func handleGenCode(w http.ResponseWriter, r *http.Request) {
 	if !ok || u != "admin" {
 		return
 	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		return
+	}
 	code := generateToken()[:12]
-	plan := r.URL.Query().Get("plan")
+	plan := r.FormValue("plan")
 	db.Exec("INSERT INTO redeem_codes VALUES (?, ?, 0)", code, plan)
 	w.Write([]byte(code))
 }
@@ -729,18 +767,59 @@ func handleConfigPlans(w http.ResponseWriter, r *http.Request) {
 	if !ok || u != "admin" {
 		return
 	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		return
+	}
+	_ = r.ParseForm()
 	name := r.FormValue("name")
-	conc, _ := strconv.Atoi(r.FormValue("concurrents"))
-	time, _ := strconv.Atoi(r.FormValue("time"))
-	vip := r.FormValue("vip") == "true"
-	api := r.FormValue("api") == "true"
-	db.Exec("INSERT OR REPLACE INTO plans (name, concurrents, max_time, vip, api) VALUES (?, ?, ?, ?, ?)", name, conc, time, vip, api)
+	if name != "" {
+		conc, _ := strconv.Atoi(r.FormValue("concurrents"))
+		time, _ := strconv.Atoi(r.FormValue("time"))
+		vip := r.FormValue("vip") == "true"
+		api := r.FormValue("api") == "true"
+		db.Exec("INSERT OR REPLACE INTO plans (name, concurrents, max_time, vip, api) VALUES (?, ?, ?, ?, ?)", name, conc, time, vip, api)
+	} else {
+		rows, err := db.Query("SELECT name, api FROM plans")
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var planName string
+				var api bool
+				if err := rows.Scan(&planName, &api); err != nil {
+					continue
+				}
+				conc, err := strconv.Atoi(r.FormValue(planName + "_conc"))
+				if err != nil {
+					continue
+				}
+				maxTime, err := strconv.Atoi(r.FormValue(planName + "_time"))
+				if err != nil {
+					continue
+				}
+				vip := r.FormValue(planName+"_vip") == "on" || r.FormValue(planName+"_vip") == "true"
+				db.Exec("UPDATE plans SET concurrents=?, max_time=?, vip=?, api=? WHERE name=?", conc, maxTime, vip, api, planName)
+			}
+		}
+	}
 	http.Redirect(w, r, "/admin?view=settings", 302)
 }
 
 func handleAddProduct(w http.ResponseWriter, r *http.Request) {
 	u, ok := validateSession(r)
 	if !ok || u != "admin" {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
 		return
 	}
 	name := r.FormValue("name")
@@ -758,13 +837,29 @@ func handleDelProduct(w http.ResponseWriter, r *http.Request) {
 	if !ok || username != "admin" {
 		return
 	}
-	db.Exec("DELETE FROM products WHERE id = ?", r.URL.Query().Get("id"))
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		return
+	}
+	db.Exec("DELETE FROM products WHERE id = ?", r.FormValue("id"))
 	http.Redirect(w, r, "/admin?view=market", 302)
 }
 
 func handleAddWallet(w http.ResponseWriter, r *http.Request) {
 	username, ok := validateSession(r)
 	if !ok || username != "admin" {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
 		return
 	}
 	db.Exec("INSERT INTO wallets(address, private_key, status, assigned_to) VALUES (?, ?, 'Free', '')", Sanitize(r.FormValue("address")), r.FormValue("private_key"))
@@ -776,7 +871,15 @@ func handleDelWallet(w http.ResponseWriter, r *http.Request) {
 	if !ok || username != "admin" {
 		return
 	}
-	db.Exec("DELETE FROM wallets WHERE address=?", Sanitize(r.URL.Query().Get("address")))
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		return
+	}
+	db.Exec("DELETE FROM wallets WHERE address=?", Sanitize(r.FormValue("address")))
 	http.Redirect(w, r, "/admin?view=finance", 302)
 }
 
@@ -785,12 +888,20 @@ func handleBlacklistOp(w http.ResponseWriter, r *http.Request) {
 	if !ok || username != "admin" {
 		return
 	}
-	action := r.URL.Query().Get("action")
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		return
+	}
+	action := r.FormValue("action")
 	target := Sanitize(r.FormValue("target"))
 	if action == "add" {
 		db.Exec("INSERT INTO blacklist VALUES (?, ?, ?)", target, Sanitize(r.FormValue("reason")), time.Now().Format("2006-01-02"))
 	} else {
-		db.Exec("DELETE FROM blacklist WHERE target = ?", r.URL.Query().Get("target"))
+		db.Exec("DELETE FROM blacklist WHERE target = ?", target)
 	}
 	http.Redirect(w, r, "/admin?view=blacklist", 302)
 }
@@ -798,6 +909,14 @@ func handleBlacklistOp(w http.ResponseWriter, r *http.Request) {
 func handleUploadMethod(w http.ResponseWriter, r *http.Request) {
 	u, ok := validateSession(r)
 	if !ok || u != "admin" {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
 		return
 	}
 
@@ -834,8 +953,16 @@ func handleDepositAction(w http.ResponseWriter, r *http.Request) {
 	if !ok || u != "admin" {
 		return
 	}
-	id := r.URL.Query().Get("id")
-	action := r.URL.Query().Get("action")
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		return
+	}
+	id := r.FormValue("id")
+	action := r.FormValue("action")
 	if action == "confirm" {
 		var user string
 		var usd float64
@@ -855,6 +982,14 @@ func handleCreateTicket(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		return
+	}
 	subject := Sanitize(r.FormValue("subject"))
 	category := r.FormValue("category")
 	message := Sanitize(r.FormValue("message"))
@@ -868,6 +1003,14 @@ func handleCreateTicket(w http.ResponseWriter, r *http.Request) {
 func handleReplyTicket(w http.ResponseWriter, r *http.Request) {
 	u, ok := validateSession(r)
 	if !ok {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
 		return
 	}
 	tid := r.FormValue("id")
@@ -935,8 +1078,7 @@ func handleRedeemLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// CSRF validation (same as login/register)
-	c, err := r.Cookie("csrf_token")
-	if err != nil || c.Value == "" || c.Value != r.FormValue("csrf_token") {
+	if !validateCSRF(r) {
 		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
 		return
 	}
@@ -1004,6 +1146,10 @@ func handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		return
+	}
 	if isRateLimited(getIP(r)) {
 		http.Error(w, "Rate Limit", http.StatusTooManyRequests)
 		return
@@ -1069,6 +1215,10 @@ func handleRotateToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		return
+	}
 	if isRateLimited(getIP(r)) {
 		http.Error(w, "Rate Limit", http.StatusTooManyRequests)
 		return
@@ -1123,8 +1273,14 @@ func handleRevokeSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		return
+	}
 
-	var req struct{ Token string `json:"token"` }
+	var req struct {
+		Token string `json:"token"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Token == "" {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
@@ -1151,6 +1307,10 @@ func handleRevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
 		return
 	}
 

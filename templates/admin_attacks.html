@@ -11,6 +11,7 @@
         </div>
     </main>
     <script>
+    const csrfToken = "{{.CsrfToken}}";
     async function update() {
         try {
             const res = await fetch('/api/attack/list');
@@ -19,11 +20,11 @@
             tbody.innerHTML = '';
             attacks.forEach(a => {
                 const diff = Math.floor((new Date(a.EndTime) - new Date()) / 1000);
-                if (diff > 0) tbody.innerHTML += `<tr class="border-b border-white/5 hover:bg-white/5"><td class="py-3 text-indigo-400 font-bold">${a.UserID}</td><td class="py-3 text-white">${a.Target}</td><td class="py-3 text-gray-400">${a.Method}</td><td class="py-3 text-green-400 font-bold">${diff}s</td><td class="py-3 text-right"><button onclick="fetch('/api/attack/stop?id=${a.ID}')" class="text-red-400 hover:text-white bg-red-500/10 px-2 py-1 rounded border border-red-500/20">KILL</button></td></tr>`;
+                if (diff > 0) tbody.innerHTML += `<tr class="border-b border-white/5 hover:bg-white/5"><td class="py-3 text-indigo-400 font-bold">${a.UserID}</td><td class="py-3 text-white">${a.Target}</td><td class="py-3 text-gray-400">${a.Method}</td><td class="py-3 text-green-400 font-bold">${diff}s</td><td class="py-3 text-right"><button onclick="fetch('/api/attack/stop', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRF-Token': csrfToken}, body:'id=' + encodeURIComponent(a.ID)})" class="text-red-400 hover:text-white bg-red-500/10 px-2 py-1 rounded border border-red-500/20">KILL</button></td></tr>`;
             });
             if(attacks.length===0) tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-gray-600">No attacks running.</td></tr>';
         } catch(e){}
     }
-    function stopAll() { fetch('/api/attack/stopAll'); update(); }
+    function stopAll() { fetch('/api/attack/stopAll', {method:'POST', headers:{'X-CSRF-Token': csrfToken}}); update(); }
     setInterval(update, 1000); update();
     </script></body></html>

@@ -230,6 +230,8 @@ function showToast(m,t='success'){
     setTimeout(()=>{d.classList.add('toast-exit-active');setTimeout(()=>d.remove(),300)},4000);
 }
 
+const csrfToken = '{{.CsrfToken}}';
+
 function profileApp(){
     return {
         showToken:false,
@@ -268,14 +270,14 @@ function profileApp(){
         async revokeSession(token){
             if(!token) return;
             try{
-                const r = await fetch('/api/user/sessions/revoke', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({token})});
+                const r = await fetch('/api/user/sessions/revoke', {method:'POST', headers:{'Content-Type':'application/json', 'X-CSRF-Token': csrfToken}, body: JSON.stringify({token})});
                 if(r.ok){ showToast('Session Revoked'); this.fetchSessions(); }
                 else { showToast('Failed','error'); }
             }catch(e){ showToast('Connection Error','error'); }
         },
         async revokeAllSessions(){
             try{
-                const r = await fetch('/api/user/sessions/revoke-all', {method:'POST'});
+                const r = await fetch('/api/user/sessions/revoke-all', {method:'POST', headers:{'X-CSRF-Token': csrfToken}});
                 if(r.ok){ showToast('Other Sessions Revoked'); this.fetchSessions(); }
                 else { showToast('Failed','error'); }
             }catch(e){ showToast('Connection Error','error'); }
@@ -283,7 +285,7 @@ function profileApp(){
         async rotateToken(){
             if(!confirm('Regenerate API token? Old token will stop working.')) return;
             try{
-                const r = await fetch('/api/user/token/rotate', {method:'POST'});
+                const r = await fetch('/api/user/token/rotate', {method:'POST', headers:{'X-CSRF-Token': csrfToken}});
                 if(!r.ok){ showToast('Failed','error'); return; }
                 const j = await r.json();
                 this.currentToken = j.token;
@@ -293,7 +295,7 @@ function profileApp(){
         },
         async changePassword(){
             try{
-                const r = await fetch('/api/user/change-password', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(this.pwd)});
+                const r = await fetch('/api/user/change-password', {method:'POST', headers:{'Content-Type':'application/json', 'X-CSRF-Token': csrfToken}, body: JSON.stringify(this.pwd)});
                 if(r.ok){
                     this.pwd = {current:'', next:'', confirm:''};
                     showToast('Password Updated');

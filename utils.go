@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"html/template"
 	"log"
 	"math"
 	"math/big"
@@ -17,13 +18,14 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"html/template"
 	"time"
 
 	"golang.org/x/crypto/argon2"
 )
 
 // --- UTILS ---
+
+const csrfCookieName = "csrf_token"
 
 func renderTemplate(w http.ResponseWriter, tmpl string, data interface{}) {
 	// Use html/template to ensure proper contextual auto-escaping.
@@ -46,6 +48,46 @@ func roundFloat(val float64, precision uint) float64 {
 }
 
 func Sanitize(input string) string { return html.EscapeString(input) }
+
+func ensureCSRFCookie(w http.ResponseWriter, r *http.Request) string {
+	if r != nil {
+		if c, err := r.Cookie(csrfCookieName); err == nil && c.Value != "" {
+			return c.Value
+		}
+	}
+	token := generateToken() + generateToken()
+	secure := true
+	if r != nil && r.TLS == nil {
+		secure = false
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     csrfCookieName,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+	return token
+}
+
+func validateCSRF(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	c, err := r.Cookie(csrfCookieName)
+	if err != nil || c.Value == "" {
+		return false
+	}
+	token := r.FormValue("csrf_token")
+	if token == "" {
+		token = r.Header.Get("X-CSRF-Token")
+	}
+	if token == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(token), []byte(c.Value)) == 1
+}
 
 func setSecurityHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
