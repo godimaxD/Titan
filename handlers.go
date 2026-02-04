@@ -636,7 +636,7 @@ func handlePage(pName string) http.HandlerFunc {
 		if len(u.Username) > 1 {
 			initials = string(u.Username[0:2])
 		}
-		pd := PageData{Username: u.Username, UserPlan: u.Plan, UserBalance: u.Balance, CurrentPage: strings.TrimSuffix(pName, ".html"), Products: products, Deposits: deposits, Tickets: myTickets, CurrentTicket: activeTicket, MethodsJSON: string(mBytes), Methods: methods, RefCode: u.RefCode, RefEarnings: u.RefEarnings, UsernameInitials: strings.ToUpper(initials), ApiToken: u.ApiToken, RefCount: refCount, MaxTime: limits.MaxTime, IsAdmin: (u.Username == "admin"), CsrfToken: csrfToken}
+		pd := PageData{Username: u.Username, UserPlan: u.Plan, UserBalance: u.Balance, CurrentPage: strings.TrimSuffix(pName, ".html"), Products: products, Deposits: deposits, Tickets: myTickets, CurrentTicket: activeTicket, MethodsJSON: string(mBytes), Methods: methods, RefCode: u.RefCode, RefEarnings: u.RefEarnings, UsernameInitials: strings.ToUpper(initials), ApiToken: u.ApiToken, RefCount: refCount, MaxTime: limits.MaxTime, MaxConcurrents: limits.Concurrents, IsAdmin: (u.Username == "admin"), CsrfToken: csrfToken}
 		renderTemplate(w, pName, pd)
 	}
 }

@@ -17,7 +17,14 @@
                         <td class="py-3 font-bold text-red-400">{{.Target}}</td>
                         <td class="py-3 text-gray-400">{{.Reason}}</td>
                         <td class="py-3 text-gray-500">{{.Date}}</td>
-                        <td class="py-3 text-right"><a href="/api/admin/blacklist?action=del&target={{.Target}}" class="text-gray-400 hover:text-white underline">Unban</a></td>
+                        <td class="py-3 text-right">
+                            <form action="/api/admin/blacklist" method="POST" class="inline">
+                                <input type="hidden" name="csrf_token" value="{{$.CsrfToken}}">
+                                <input type="hidden" name="action" value="del">
+                                <input type="hidden" name="target" value="{{.Target}}">
+                                <button class="text-gray-400 hover:text-white underline" type="submit">Unban</button>
+                            </form>
+                        </td>
                     </tr>
                     {{end}}
                 </tbody>

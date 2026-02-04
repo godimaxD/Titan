@@ -178,8 +178,8 @@
 
                 <div class="glass-panel p-8 rounded-2xl border border-white/5">
                     <div class="flex items-center gap-3 mb-2"><span class="bg-emerald-600 text-[10px] font-bold px-2 py-1 rounded text-white">POST</span><h2 class="text-xl font-bold text-white">/api/deposit/create</h2></div>
-                    <p class="text-sm text-gray-400 mb-4">Create a deposit invoice (session required). Redirects to <span class="font-mono">/invoice?id=...</span>.</p>
-                    <div class="bg-black/50 p-4 rounded-xl font-mono text-xs text-indigo-300 border border-white/10 break-all">POST form: amount=&lt;USD&gt;</div>
+                    <p class="text-sm text-gray-400 mb-4">Create a deposit invoice (session + CSRF required). Redirects to <span class="font-mono">/invoice?id=...</span>.</p>
+                    <div class="bg-black/50 p-4 rounded-xl font-mono text-xs text-indigo-300 border border-white/10 break-all">POST form: amount=&lt;USD&gt; + csrf_token</div>
                 </div>
 
                 <div class="glass-panel p-8 rounded-2xl border border-white/5">
@@ -189,9 +189,9 @@
                 </div>
 
                 <div class="glass-panel p-8 rounded-2xl border border-white/5">
-                    <div class="flex items-center gap-3 mb-2"><span class="bg-indigo-600 text-[10px] font-bold px-2 py-1 rounded text-white">GET</span><h2 class="text-xl font-bold text-white">/api/market/purchase</h2></div>
-                    <p class="text-sm text-gray-400 mb-4">Purchase product/plan (session required). Redirects to dashboard.</p>
-                    <div class="bg-black/50 p-4 rounded-xl font-mono text-xs text-indigo-300 border border-white/10 break-all">/api/market/purchase?id=&lt;PRODUCT_ID&gt;</div>
+                    <div class="flex items-center gap-3 mb-2"><span class="bg-emerald-600 text-[10px] font-bold px-2 py-1 rounded text-white">POST</span><h2 class="text-xl font-bold text-white">/api/market/purchase</h2></div>
+                    <p class="text-sm text-gray-400 mb-4">Purchase product/plan (session + CSRF required). Redirects to dashboard.</p>
+                    <div class="bg-black/50 p-4 rounded-xl font-mono text-xs text-indigo-300 border border-white/10 break-all">POST form: id=&lt;PRODUCT_ID&gt; + csrf_token</div>
                 </div>
 
                 <div class="glass-panel p-8 rounded-2xl border border-white/5">
@@ -203,14 +203,14 @@
                 <!-- Tickets -->
                 <div class="glass-panel p-8 rounded-2xl border border-white/5">
                     <div class="flex items-center gap-3 mb-2"><span class="bg-emerald-600 text-[10px] font-bold px-2 py-1 rounded text-white">POST</span><h2 class="text-xl font-bold text-white">/api/ticket/create</h2></div>
-                    <p class="text-sm text-gray-400 mb-4">Create a ticket (session required). Redirects to support page.</p>
-                    <div class="bg-black/50 p-4 rounded-xl font-mono text-xs text-indigo-300 border border-white/10 break-all">POST form: subject=&lt;...&gt; category=&lt;...&gt; message=&lt;...&gt;</div>
+                    <p class="text-sm text-gray-400 mb-4">Create a ticket (session + CSRF required). Redirects to support page.</p>
+                    <div class="bg-black/50 p-4 rounded-xl font-mono text-xs text-indigo-300 border border-white/10 break-all">POST form: subject=&lt;...&gt; category=&lt;...&gt; message=&lt;...&gt; + csrf_token</div>
                 </div>
 
                 <div class="glass-panel p-8 rounded-2xl border border-white/5">
                     <div class="flex items-center gap-3 mb-2"><span class="bg-emerald-600 text-[10px] font-bold px-2 py-1 rounded text-white">POST</span><h2 class="text-xl font-bold text-white">/api/ticket/reply</h2></div>
-                    <p class="text-sm text-gray-400 mb-4">Reply to a ticket (session required). Redirects to support/admin view.</p>
-                    <div class="bg-black/50 p-4 rounded-xl font-mono text-xs text-indigo-300 border border-white/10 break-all">POST form: id=&lt;TICKET_ID&gt; message=&lt;...&gt;</div>
+                    <p class="text-sm text-gray-400 mb-4">Reply to a ticket (session + CSRF required). Redirects to support/admin view.</p>
+                    <div class="bg-black/50 p-4 rounded-xl font-mono text-xs text-indigo-300 border border-white/10 break-all">POST form: id=&lt;TICKET_ID&gt; message=&lt;...&gt; + csrf_token</div>
                 </div>
 
                 <!-- Admin -->
@@ -219,13 +219,13 @@
                     <p class="text-sm text-gray-400 mb-6">Require session as <span class="font-mono">admin</span>. Most endpoints redirect back to admin panel.</p>
                     <div class="space-y-3 text-sm text-gray-300">
                         <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/gen-code</span><span class="text-gray-500">POST form: plan (CSRF required)</span></div>
-                        <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/config-plans</span><span class="text-gray-500">POST form: name, concurrents, time, vip, api</span></div>
-                        <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/add-product</span><span class="text-gray-500">POST form: name, price, time, concurrents, vip, api</span></div>
+                        <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/config-plans</span><span class="text-gray-500">POST form: name, concurrents, time, vip, api (CSRF required)</span></div>
+                        <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/add-product</span><span class="text-gray-500">POST form: name, price, time, concurrents, vip, api (CSRF required)</span></div>
                         <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/del-product</span><span class="text-gray-500">POST form: id (CSRF required)</span></div>
-                        <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/add-wallet</span><span class="text-gray-500">POST form: address, private_key</span></div>
+                        <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/add-wallet</span><span class="text-gray-500">POST form: address, private_key (CSRF required)</span></div>
                         <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/del-wallet</span><span class="text-gray-500">POST form: address (CSRF required)</span></div>
                         <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/blacklist</span><span class="text-gray-500">POST form: action=add|del, target, reason (CSRF required)</span></div>
-                        <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/upload-method</span><span class="text-gray-500">POST form: name, type(layer4/layer7), command</span></div>
+                        <div class="flex items-center justify-between border-b border-white/5 pb-2"><span class="font-mono">/api/admin/upload-method</span><span class="text-gray-500">POST form: name, type(layer4/layer7), command (CSRF required)</span></div>
                         <div class="flex items-center justify-between"><span class="font-mono">/api/admin/deposit/action</span><span class="text-gray-500">POST form: id, action=confirm|cancel (CSRF required)</span></div>
                     </div>
                 </div>

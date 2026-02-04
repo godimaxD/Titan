@@ -309,7 +309,7 @@ function profileApp(){
             // Best-effort: re-use methods JSON already loaded server side; limits are not provided directly.
             // We infer limits by calling a dummy endpoint is out of scope; show '-' unless you want a dedicated endpoint.
             // For now, keep placeholders.
-            this.limits = {concurrents:'{{.MaxTime}}', max_time:'{{.MaxTime}}'};
+            this.limits = {concurrents:'{{.MaxConcurrents}}', max_time:'{{.MaxTime}}'};
         }
     }
 }

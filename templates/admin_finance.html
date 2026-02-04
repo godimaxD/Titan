@@ -32,7 +32,11 @@
                             <div class="text-[10px] text-gray-400 font-bold uppercase"><span class="{{if eq .Status "Free"}}text-green-400{{else}}text-yellow-400{{end}}">({{.Status}})</span></div>
                             <div class="text-xs font-mono text-gray-300 truncate w-40">{{.Address}}</div>
                         </div>
-                        <a href="/api/admin/del-wallet?address={{.Address}}" class="text-red-500 hover:text-white text-xs">Del</a>
+                        <form action="/api/admin/del-wallet" method="POST">
+                            <input type="hidden" name="csrf_token" value="{{$.CsrfToken}}">
+                            <input type="hidden" name="address" value="{{.Address}}">
+                            <button class="text-red-500 hover:text-white text-xs" type="submit">Del</button>
+                        </form>
                     </div>
                     {{end}}
                 </div>
