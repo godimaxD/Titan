@@ -59,7 +59,7 @@ func main() {
 				}
 			}
 			mu.Unlock()
-			db.Exec("UPDATE deposits SET status='Expired' WHERE status='Pending' AND expires < ?", time.Now())
+			db.Exec("UPDATE deposits SET status='Expired' WHERE status='Pending' AND expires < ?", time.Now().Unix())
 			db.Exec("UPDATE wallets SET status='Free', assigned_to='' WHERE assigned_to IN (SELECT id FROM deposits WHERE status='Expired')")
 		}
 	}()
@@ -88,6 +88,9 @@ func main() {
 	http.HandleFunc("/panel/l7/submit", handlePanelL7Submit)
 
 	http.HandleFunc("/invoice", handleInvoicePage)
+	http.HandleFunc("/deposit/pay", handleDepositPayPage)
+	http.HandleFunc("/receipt", handleReceiptPage)
+	http.HandleFunc("/receipt/download", handleReceiptDownload)
 	http.HandleFunc("/api/deposit/create", handleCreateDeposit)
 	http.HandleFunc("/api/deposit/check", handleCheckDeposit)
 	http.HandleFunc("/api/admin/add-wallet", handleAddWallet)

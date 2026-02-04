@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"sync"
 	"time"
 )
@@ -56,6 +57,10 @@ type Deposit struct {
 	UsdAmount             float64
 	Address, Status, Date string
 	Expires               time.Time
+	ConfirmedAt           sql.NullString
+	TxID                  sql.NullString
+	Fee                   sql.NullFloat64
+	Notes                 sql.NullString
 }
 type AttackData struct {
 	ID, UserID, Target, Method, Port, Concurrency, Location string
@@ -100,6 +105,32 @@ type InvoiceData struct {
 	UsdAmount        float64
 	ExpiresInSeconds int
 	Status           string
+}
+type PaymentPageData struct {
+	ID, Address      string
+	Amount           float64
+	UsdAmount        float64
+	ExpiresInSeconds int
+	ExpiresAt        string
+	Status           string
+	Currency         string
+}
+
+type ReceiptData struct {
+	ID          string
+	Username    string
+	UserID      string
+	Address     string
+	Amount      float64
+	UsdAmount   float64
+	Status      string
+	CreatedAt   string
+	ConfirmedAt string
+	TxID        string
+	Fee         float64
+	Notes       string
+	Currency    string
+	IsDownload  bool
 }
 type AdminData struct {
 	Username, Uptime                         string

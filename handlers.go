@@ -220,7 +220,7 @@ func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	depID := generateID()
-	expires := time.Now().Add(15 * time.Minute)
+	expires := time.Now().Add(15 * time.Minute).Unix()
 
 	_, err = tx.Exec("INSERT INTO deposits (id, user_id, amount, usd_amount, address, status, date, expires) VALUES (?, ?, ?, ?, ?, 'Pending', ?, ?)",
 		depID, username, trxAmount, usdAmt, walletAddr, time.Now().Format("2006-01-02 15:04"), expires)
@@ -243,38 +243,211 @@ func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, "/invoice?id="+depID, 302)
+	http.Redirect(w, r, "/deposit/pay?id="+depID, 302)
 }
 
 func handleInvoicePage(w http.ResponseWriter, r *http.Request) {
+	handleDepositPayPage(w, r)
+}
+
+func handleDepositPayPage(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w)
+	username, ok := validateSession(r)
+	if !ok {
+		http.Redirect(w, r, "/login", 302)
+		return
+	}
 	id := Sanitize(r.URL.Query().Get("id"))
+	if id == "" {
+		http.Redirect(w, r, "/deposit", 302)
+		return
+	}
 	var d Deposit
-	err := db.QueryRow("SELECT id, amount, usd_amount, address, status, expires FROM deposits WHERE id=?", id).Scan(&d.ID, &d.Amount, &d.UsdAmount, &d.Address, &d.Status, &d.Expires)
+	var expiresRaw string
+	err := db.QueryRow("SELECT id, user_id, amount, usd_amount, address, status, expires FROM deposits WHERE id=?", id).
+		Scan(&d.ID, &d.UserID, &d.Amount, &d.UsdAmount, &d.Address, &d.Status, &expiresRaw)
 	if err != nil {
 		http.Redirect(w, r, "/deposit", 302)
 		return
+	}
+	d.Expires = parseDepositExpires(expiresRaw)
+	if d.UserID != username && username != "admin" {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if !d.Expires.IsZero() && d.Status == "Pending" && time.Now().After(d.Expires) {
+		_, _ = db.Exec("UPDATE deposits SET status='Expired' WHERE id = ?", d.ID)
+		d.Status = "Expired"
 	}
 	remaining := int(time.Until(d.Expires).Seconds())
 	if remaining < 0 {
 		remaining = 0
 	}
 	d.Amount = roundFloat(d.Amount, 2)
-	data := InvoiceData{ID: d.ID, Address: d.Address, Amount: d.Amount, UsdAmount: d.UsdAmount, ExpiresInSeconds: remaining, Status: d.Status}
-	renderTemplate(w, "invoice.html", data)
+	expiresAt := "N/A"
+	if !d.Expires.IsZero() {
+		expiresAt = d.Expires.Format("2006-01-02 15:04")
+	}
+	data := PaymentPageData{
+		ID:               d.ID,
+		Address:          d.Address,
+		Amount:           d.Amount,
+		UsdAmount:        d.UsdAmount,
+		ExpiresInSeconds: remaining,
+		ExpiresAt:        expiresAt,
+		Status:           normalizeDepositStatus(d.Status),
+		Currency:         "TRX",
+	}
+	renderTemplate(w, "deposit_pay.html", data)
+}
+
+func handleReceiptPage(w http.ResponseWriter, r *http.Request) {
+	setSecurityHeaders(w)
+	data, ok := loadReceiptData(w, r)
+	if !ok {
+		return
+	}
+	renderTemplate(w, "receipt.html", data)
+}
+
+func handleReceiptDownload(w http.ResponseWriter, r *http.Request) {
+	setSecurityHeaders(w)
+	data, ok := loadReceiptData(w, r)
+	if !ok {
+		return
+	}
+	data.IsDownload = true
+	filename := fmt.Sprintf("receipt-%s.html", data.ID)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	renderTemplate(w, "receipt.html", data)
 }
 
 func handleCheckDeposit(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Content-Type", "application/json")
-	id := Sanitize(r.URL.Query().Get("id"))
-	var status string
-	err := db.QueryRow("SELECT status FROM deposits WHERE id = ?", id).Scan(&status)
-	if err != nil {
-		w.Write([]byte(`{"status":"Error"}`))
+	username, ok := validateSession(r)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	w.Write([]byte(`{"status":"` + status + `"}`))
+	id := Sanitize(r.URL.Query().Get("id"))
+	var status string
+	var owner string
+	var expiresRaw string
+	err := db.QueryRow("SELECT status, user_id, expires FROM deposits WHERE id = ?", id).Scan(&status, &owner, &expiresRaw)
+	if err != nil {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	}
+	expires := parseDepositExpires(expiresRaw)
+	if owner != username && username != "admin" {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if !expires.IsZero() && status == "Pending" && time.Now().After(expires) {
+		_, _ = db.Exec("UPDATE deposits SET status='Expired' WHERE id = ?", id)
+		status = "Expired"
+	}
+	normalized := normalizeDepositStatus(status)
+	json.NewEncoder(w).Encode(map[string]string{"status": normalized})
+}
+
+func loadReceiptData(w http.ResponseWriter, r *http.Request) (ReceiptData, bool) {
+	username, ok := validateSession(r)
+	if !ok {
+		http.Redirect(w, r, "/login", 302)
+		return ReceiptData{}, false
+	}
+	id := Sanitize(r.URL.Query().Get("id"))
+	if id == "" {
+		http.Redirect(w, r, "/deposit", 302)
+		return ReceiptData{}, false
+	}
+	var d Deposit
+	var userID string
+	err := db.QueryRow(`SELECT d.id, d.user_id, u.user_id, d.amount, d.usd_amount, d.address, d.status, d.date,
+		d.confirmed_at, d.txid, d.fee, d.notes
+		FROM deposits d
+		LEFT JOIN users u ON d.user_id = u.username
+		WHERE d.id = ?`, id).
+		Scan(&d.ID, &d.UserID, &userID, &d.Amount, &d.UsdAmount, &d.Address, &d.Status, &d.Date, &d.ConfirmedAt, &d.TxID, &d.Fee, &d.Notes)
+	if err != nil {
+		http.Redirect(w, r, "/deposit", 302)
+		return ReceiptData{}, false
+	}
+	if d.UserID != username && username != "admin" {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return ReceiptData{}, false
+	}
+	confirmed := ""
+	if d.ConfirmedAt.Valid {
+		confirmed = d.ConfirmedAt.String
+	}
+	txid := "Not available"
+	if d.TxID.Valid && strings.TrimSpace(d.TxID.String) != "" {
+		txid = d.TxID.String
+	}
+	fee := 0.0
+	if d.Fee.Valid {
+		fee = d.Fee.Float64
+	}
+	notes := "None"
+	if d.Notes.Valid && strings.TrimSpace(d.Notes.String) != "" {
+		notes = d.Notes.String
+	}
+	status := normalizeDepositStatus(d.Status)
+	if userID == "" {
+		userID = d.UserID
+	}
+	data := ReceiptData{
+		ID:          d.ID,
+		Username:    d.UserID,
+		UserID:      userID,
+		Address:     d.Address,
+		Amount:      roundFloat(d.Amount, 2),
+		UsdAmount:   roundFloat(d.UsdAmount, 2),
+		Status:      status,
+		CreatedAt:   d.Date,
+		ConfirmedAt: confirmed,
+		TxID:        txid,
+		Fee:         fee,
+		Notes:       notes,
+		Currency:    "TRX",
+	}
+	return data, true
+}
+
+func normalizeDepositStatus(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "confirmed", "paid":
+		return "Paid"
+	case "cancelled", "canceled", "rejected":
+		return "Rejected"
+	case "expired":
+		return "Expired"
+	default:
+		return "Pending"
+	}
+}
+
+func parseDepositExpires(raw string) time.Time {
+	if raw == "" {
+		return time.Time{}
+	}
+	if unix, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		return time.Unix(unix, 0)
+	}
+	if parsed, err := time.Parse("2006-01-02 15:04:05", raw); err == nil {
+		return parsed
+	}
+	if parsed, err := time.Parse("2006-01-02 15:04", raw); err == nil {
+		return parsed
+	}
+	if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
+		return parsed
+	}
+	return time.Time{}
 }
 
 func handlePurchase(w http.ResponseWriter, r *http.Request) {
@@ -381,6 +554,7 @@ func handleAdminPage(w http.ResponseWriter, r *http.Request) {
 			for rows.Next() {
 				var d Deposit
 				rows.Scan(&d.ID, &d.UserID, &d.Amount, &d.UsdAmount, &d.Status, &d.Date)
+				d.Status = normalizeDepositStatus(d.Status)
 				ad.Deposits = append(ad.Deposits, d)
 			}
 		}
@@ -422,6 +596,7 @@ func handleAdminPage(w http.ResponseWriter, r *http.Request) {
 			for rows.Next() {
 				var d Deposit
 				rows.Scan(&d.ID, &d.UserID, &d.Amount, &d.UsdAmount, &d.Status, &d.Date, &d.Address)
+				d.Status = normalizeDepositStatus(d.Status)
 				ad.Deposits = append(ad.Deposits, d)
 			}
 		}
@@ -665,6 +840,7 @@ func handlePage(pName string) http.HandlerFunc {
 			for rows.Next() {
 				var d Deposit
 				rows.Scan(&d.ID, &d.Amount, &d.UsdAmount, &d.Status, &d.Date, &d.Address)
+				d.Status = normalizeDepositStatus(d.Status)
 				deposits = append(deposits, d)
 			}
 		}
@@ -1310,11 +1486,11 @@ func handleDepositAction(w http.ResponseWriter, r *http.Request) {
 		var user string
 		var usd float64
 		db.QueryRow("SELECT user_id, usd_amount FROM deposits WHERE id=?", id).Scan(&user, &usd)
-		db.Exec("UPDATE deposits SET status='Confirmed' WHERE id=?", id)
+		db.Exec("UPDATE deposits SET status='Paid', confirmed_at=? WHERE id=?", time.Now().Format("2006-01-02 15:04"), id)
 		db.Exec("UPDATE users SET balance=balance+? WHERE username=?", usd, user)
 		db.Exec("UPDATE wallets SET status='Free', assigned_to='' WHERE assigned_to=?", id)
 	} else {
-		db.Exec("UPDATE deposits SET status='Cancelled' WHERE id=?", id)
+		db.Exec("UPDATE deposits SET status='Rejected' WHERE id=?", id)
 		db.Exec("UPDATE wallets SET status='Free', assigned_to='' WHERE assigned_to=?", id)
 	}
 	http.Redirect(w, r, "/admin?view=finance", 302)

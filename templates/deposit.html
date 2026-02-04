@@ -175,7 +175,7 @@
                 <!-- DEPOSIT FORM -->
                 <div x-data="{ price: 0.15 }" class="glass-panel p-8 rounded-3xl relative overflow-hidden flex flex-col justify-center">
                     <div x-init="fetch('https://api.binance.com/api/v3/ticker/price?symbol=TRXUSDT').then(r=>r.json()).then(d=>price=d.price)"></div>
-                    <h2 class="text-2xl font-bold text-black dark:text-white mb-6">Create Invoice</h2>
+                    <h2 class="text-2xl font-bold text-black dark:text-white mb-6">Deposit Funds</h2>
                     <form action="/api/deposit/create" method="POST" class="space-y-6">
                         <input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
                         <div>
@@ -187,7 +187,7 @@
                             <div class="text-xs text-indigo-500 font-mono mt-2 text-right font-bold" x-ref="calc"></div>
                         </div>
                         <button class="w-full glass-btn py-3 rounded-xl transition tracking-wider uppercase text-sm shadow-lg">
-                            GENERATE CRYPTO ADDRESS
+                            PAY
                         </button>
                     </form>
                 </div>
@@ -215,9 +215,11 @@
                                     </td>
                                     <td class="py-4">
                                         {{if eq .Status "Paid"}}
-                                            <a href="/invoice?id={{.ID}}" target="_blank" class="px-3 py-1.5 rounded-md text-[10px] font-bold uppercase bg-green-600 text-white shadow-lg shadow-green-500/20 hover:scale-105 transition inline-block tracking-wide">RECEIPT</a>
+                                            <a href="/receipt?id={{.ID}}" target="_blank" class="px-3 py-1.5 rounded-md text-[10px] font-bold uppercase bg-green-600 text-white shadow-lg shadow-green-500/20 hover:scale-105 transition inline-block tracking-wide">RECEIPT</a>
+                                        {{else if eq .Status "Pending"}}
+                                            <a href="/deposit/pay?id={{.ID}}" class="px-3 py-1.5 rounded-md text-[10px] font-bold uppercase bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border border-yellow-500/20 hover:bg-yellow-500/20 transition inline-block tracking-wide">CONTINUE</a>
                                         {{else}}
-                                            <span class="px-2 py-1 rounded text-[10px] font-bold uppercase {{if eq .Status "Pending"}}bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border border-yellow-500/20{{else}}bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20{{end}}">{{.Status}}</span>
+                                            <span class="px-2 py-1 rounded text-[10px] font-bold uppercase bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20">{{.Status}}</span>
                                         {{end}}
                                     </td>
                                     <td class="py-4 text-right text-xs text-gray-500 font-mono">{{.Date}}</td>

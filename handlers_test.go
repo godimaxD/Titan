@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func setupTestDB(t *testing.T) {
@@ -35,6 +36,10 @@ func setupTestDB(t *testing.T) {
 		);`,
 		`CREATE TABLE plans (name TEXT PRIMARY KEY, concurrents INTEGER, max_time INTEGER, vip BOOLEAN, api BOOLEAN);`,
 		`CREATE TABLE wallets (address TEXT PRIMARY KEY, private_key TEXT, status TEXT, assigned_to TEXT);`,
+		`CREATE TABLE deposits (
+			id TEXT PRIMARY KEY, user_id TEXT, amount REAL, address TEXT, status TEXT, date TEXT, expires INTEGER,
+			usd_amount REAL DEFAULT 0, confirmed_at TEXT, txid TEXT, fee REAL DEFAULT 0, notes TEXT
+		);`,
 		`CREATE TABLE methods (name TEXT PRIMARY KEY, layer TEXT, command TEXT, enabled BOOLEAN DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`,
 		`CREATE TABLE blacklist (target TEXT PRIMARY KEY, reason TEXT, date TEXT);`,
 	}
@@ -212,6 +217,163 @@ func TestPanelL4SubmitRejectsMissingCSRF(t *testing.T) {
 	handlePanelL4Submit(rr, req)
 	if rr.Result().StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", rr.Result().StatusCode)
+	}
+}
+
+func TestHandleCreateDepositRedirectsToPayPage(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO wallets (address, private_key, status, assigned_to) VALUES ('T123', 'key', 'Free', '')"); err != nil {
+		t.Fatalf("insert wallet: %v", err)
+	}
+	cfg.BinanceAPI = "http://127.0.0.1:1"
+	lastKnownTrxPrice = 0.2
+
+	sess := createSession("alice", nil)
+	body := url.Values{
+		"csrf_token": {"csrf-token"},
+		"amount":     {"25"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+
+	rr := httptest.NewRecorder()
+	handleCreateDeposit(rr, req)
+
+	res := rr.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", res.StatusCode)
+	}
+	loc := res.Header.Get("Location")
+	if !strings.HasPrefix(loc, "/deposit/pay?id=") {
+		t.Fatalf("expected pay redirect, got %q", loc)
+	}
+}
+
+func TestHandleCreateDepositRequiresCSRF(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	sess := createSession("alice", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(url.Values{"amount": {"10"}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+
+	rr := httptest.NewRecorder()
+	handleCreateDeposit(rr, req)
+
+	if rr.Result().StatusCode != http.StatusForbidden {
+		t.Fatalf("expected forbidden, got %d", rr.Result().StatusCode)
+	}
+}
+
+func TestDepositPayPageRequiresSessionAndRenders(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO deposits (id, user_id, amount, usd_amount, address, status, date, expires) VALUES ('dep1', 'alice', 10, 25, 'TADDR', 'Pending', '2024-01-01 12:00', ?)`, time.Now().Add(10*time.Minute).Unix()); err != nil {
+		t.Fatalf("insert deposit: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/deposit/pay?id=dep1", nil)
+	rr := httptest.NewRecorder()
+	handleDepositPayPage(rr, req)
+	if rr.Result().StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect for missing session")
+	}
+
+	sess := createSession("alice", nil)
+	req = httptest.NewRequest(http.MethodGet, "/deposit/pay?id=dep1", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	rr = httptest.NewRecorder()
+	handleDepositPayPage(rr, req)
+	if rr.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected ok, got %d", rr.Result().StatusCode)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "TADDR") || !strings.Contains(body, "Waiting for payment") {
+		t.Fatalf("expected pay page content")
+	}
+	if !strings.Contains(body, "/api/deposit/check") || !strings.Contains(body, "3000") {
+		t.Fatalf("expected polling script")
+	}
+}
+
+func TestDepositCheckOwnership(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('bob', 'x', 'Free', 'Active', 'tok', 'u#2', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO deposits (id, user_id, amount, usd_amount, address, status, date, expires) VALUES ('dep2', 'alice', 10, 25, 'TADDR', 'Pending', '2024-01-01 12:00', ?)`, time.Now().Add(10*time.Minute).Unix()); err != nil {
+		t.Fatalf("insert deposit: %v", err)
+	}
+
+	sess := createSession("bob", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/deposit/check?id=dep2", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	rr := httptest.NewRecorder()
+	handleCheckDeposit(rr, req)
+	if rr.Result().StatusCode != http.StatusForbidden {
+		t.Fatalf("expected forbidden, got %d", rr.Result().StatusCode)
+	}
+
+	sess = createSession("alice", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/deposit/check?id=dep2", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	rr = httptest.NewRecorder()
+	handleCheckDeposit(rr, req)
+	if rr.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected ok, got %d", rr.Result().StatusCode)
+	}
+	var payload map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload["status"] != "Pending" {
+		t.Fatalf("expected Pending status, got %q", payload["status"])
+	}
+}
+
+func TestReceiptRequiresOwnershipAndDownloads(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO deposits (id, user_id, amount, usd_amount, address, status, date, expires, confirmed_at) VALUES ('dep3', 'alice', 10, 25, 'TADDR', 'Paid', '2024-01-01 12:00', ?, '2024-01-01 12:05')`, time.Now().Add(10*time.Minute).Unix()); err != nil {
+		t.Fatalf("insert deposit: %v", err)
+	}
+
+	sess := createSession("alice", nil)
+	req := httptest.NewRequest(http.MethodGet, "/receipt?id=dep3", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	rr := httptest.NewRecorder()
+	handleReceiptPage(rr, req)
+	if rr.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected ok, got %d", rr.Result().StatusCode)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "dep3") || !strings.Contains(body, "TADDR") {
+		t.Fatalf("expected receipt content")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/receipt/download?id=dep3", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	rr = httptest.NewRecorder()
+	handleReceiptDownload(rr, req)
+	if rr.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected ok, got %d", rr.Result().StatusCode)
+	}
+	if disp := rr.Result().Header.Get("Content-Disposition"); !strings.Contains(disp, "attachment") {
+		t.Fatalf("expected attachment header")
 	}
 }
 
