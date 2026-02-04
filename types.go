@@ -81,11 +81,16 @@ type PageData struct {
 	CurrentTicket                                                              Ticket
 	Deposits                                                                   []Deposit
 	MaxTime                                                                    int
-	MaxConcurrents                                                            int
+	MaxConcurrents                                                             int
 	IsVIP                                                                      bool
 	CaptchaId                                                                  string
 	CsrfToken                                                                  string
 	RefCount                                                                   int
+	FlashMessage                                                               string
+	FlashType                                                                  string
+	FormError                                                                  string
+	FieldErrors                                                                map[string]string
+	FormValues                                                                 map[string]string
 }
 
 type InvoiceData struct {

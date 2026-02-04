@@ -82,6 +82,10 @@ func main() {
 	for _, p := range []string{"dashboard", "panel", "status", "deposit", "market", "support", "documentation", "profile"} {
 		http.HandleFunc("/"+p, handlePage(p+".html"))
 	}
+	http.HandleFunc("/panel/l4", handlePanelL4Page)
+	http.HandleFunc("/panel/l7", handlePanelL7Page)
+	http.HandleFunc("/panel/l4/submit", handlePanelL4Submit)
+	http.HandleFunc("/panel/l7/submit", handlePanelL7Submit)
 
 	http.HandleFunc("/invoice", handleInvoicePage)
 	http.HandleFunc("/api/deposit/create", handleCreateDeposit)

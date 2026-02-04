@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"mime/multipart"
+	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -490,6 +492,10 @@ func handlePanelAttack(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		return
+	}
 
 	var d ApiReq
 	if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
@@ -557,6 +563,49 @@ func launchAttack(user, target, port, duration, method, concurrency string) stri
 	return id
 }
 
+func loadMethodsFromDB() (map[string][]string, string) {
+	methods = map[string][]string{"layer4": {}, "layer7": {}}
+	mRows, _ := db.Query("SELECT name, layer FROM methods WHERE enabled=1 ORDER BY layer, name")
+	if mRows != nil {
+		defer mRows.Close()
+		for mRows.Next() {
+			var name, layer string
+			_ = mRows.Scan(&name, &layer)
+			layer = strings.ToLower(strings.TrimSpace(layer))
+			switch layer {
+			case "layer4", "layer7":
+				methods[layer] = append(methods[layer], name)
+			}
+		}
+	}
+	mBytes, _ := json.Marshal(methods)
+	return methods, string(mBytes)
+}
+
+func usernameInitials(name string) string {
+	if name == "" {
+		return "?"
+	}
+	if len(name) == 1 {
+		return strings.ToUpper(name)
+	}
+	return strings.ToUpper(name[:2])
+}
+
+func panelFlashMessage(r *http.Request) (string, string) {
+	if r == nil {
+		return "", ""
+	}
+	switch r.URL.Query().Get("msg") {
+	case "attack_sent":
+		return "Attack request queued successfully.", "success"
+	case "attack_failed":
+		return "Unable to queue the attack. Please try again.", "error"
+	default:
+		return "", ""
+	}
+}
+
 func handlePage(pName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		setSecurityHeaders(w)
@@ -613,32 +662,301 @@ func handlePage(pName string) http.HandlerFunc {
 			}
 		}
 		// Load methods from DB so panel matches admin configuration
-		methods = map[string][]string{"layer4": {}, "layer7": {}}
-		mRows, _ := db.Query("SELECT name, layer FROM methods WHERE enabled=1 ORDER BY layer, name")
-		if mRows != nil {
-			defer mRows.Close()
-			for mRows.Next() {
-				var name, layer string
-				_ = mRows.Scan(&name, &layer)
-				layer = strings.ToLower(strings.TrimSpace(layer))
-				switch layer {
-				case "layer4", "layer7":
-					methods[layer] = append(methods[layer], name)
-				}
-			}
-		}
-		mBytes, _ := json.Marshal(methods)
+		methodsMap, mBytes := loadMethodsFromDB()
 		limits := getPlanConfig(u.Plan)
-		initials := "?"
-		if len(u.Username) > 0 {
-			initials = string(u.Username[0:1])
+		flashMessage, flashType := panelFlashMessage(r)
+		pd := PageData{
+			Username:         u.Username,
+			UserPlan:         u.Plan,
+			UserBalance:      u.Balance,
+			CurrentPage:      strings.TrimSuffix(pName, ".html"),
+			Products:         products,
+			Deposits:         deposits,
+			Tickets:          myTickets,
+			CurrentTicket:    activeTicket,
+			MethodsJSON:      mBytes,
+			Methods:          methodsMap,
+			RefCode:          u.RefCode,
+			RefEarnings:      u.RefEarnings,
+			UsernameInitials: usernameInitials(u.Username),
+			ApiToken:         u.ApiToken,
+			RefCount:         refCount,
+			MaxTime:          limits.MaxTime,
+			MaxConcurrents:   limits.Concurrents,
+			IsAdmin:          (u.Username == "admin"),
+			CsrfToken:        csrfToken,
+			FlashMessage:     flashMessage,
+			FlashType:        flashType,
 		}
-		if len(u.Username) > 1 {
-			initials = string(u.Username[0:2])
-		}
-		pd := PageData{Username: u.Username, UserPlan: u.Plan, UserBalance: u.Balance, CurrentPage: strings.TrimSuffix(pName, ".html"), Products: products, Deposits: deposits, Tickets: myTickets, CurrentTicket: activeTicket, MethodsJSON: string(mBytes), Methods: methods, RefCode: u.RefCode, RefEarnings: u.RefEarnings, UsernameInitials: strings.ToUpper(initials), ApiToken: u.ApiToken, RefCount: refCount, MaxTime: limits.MaxTime, MaxConcurrents: limits.Concurrents, IsAdmin: (u.Username == "admin"), CsrfToken: csrfToken}
 		renderTemplate(w, pName, pd)
 	}
+}
+
+func buildPanelFormData(username, csrfToken string) (PageData, error) {
+	var u User
+	if err := db.QueryRow("SELECT username, plan, balance, api_token FROM users WHERE username=?", username).
+		Scan(&u.Username, &u.Plan, &u.Balance, &u.ApiToken); err != nil {
+		return PageData{}, err
+	}
+	methodsMap, _ := loadMethodsFromDB()
+	limits := getPlanConfig(u.Plan)
+	return PageData{
+		Username:         u.Username,
+		UserPlan:         u.Plan,
+		UserBalance:      u.Balance,
+		CurrentPage:      "panel",
+		Methods:          methodsMap,
+		MaxTime:          limits.MaxTime,
+		MaxConcurrents:   limits.Concurrents,
+		UsernameInitials: usernameInitials(u.Username),
+		ApiToken:         u.ApiToken,
+		CsrfToken:        csrfToken,
+	}, nil
+}
+
+func methodCommand(name, layer string) (string, error) {
+	var cmd string
+	err := db.QueryRow("SELECT command FROM methods WHERE name=? AND layer=? AND enabled=1", name, layer).Scan(&cmd)
+	return cmd, err
+}
+
+func handlePanelL4Page(w http.ResponseWriter, r *http.Request) {
+	setSecurityHeaders(w)
+	username, ok := validateSession(r)
+	if !ok {
+		http.Redirect(w, r, "/login", 302)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	csrfToken := ensureCSRFCookie(w, r)
+	pd, err := buildPanelFormData(username, csrfToken)
+	if err != nil {
+		http.Redirect(w, r, "/logout", 302)
+		return
+	}
+	pd.FormValues = map[string]string{
+		"target":      "",
+		"port":        "80",
+		"time":        "60",
+		"concurrency": "1",
+	}
+	renderTemplate(w, "panel_l4.html", pd)
+}
+
+func handlePanelL7Page(w http.ResponseWriter, r *http.Request) {
+	setSecurityHeaders(w)
+	username, ok := validateSession(r)
+	if !ok {
+		http.Redirect(w, r, "/login", 302)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	csrfToken := ensureCSRFCookie(w, r)
+	pd, err := buildPanelFormData(username, csrfToken)
+	if err != nil {
+		http.Redirect(w, r, "/logout", 302)
+		return
+	}
+	pd.FormValues = map[string]string{
+		"target":      "",
+		"time":        "60",
+		"concurrency": "1",
+	}
+	renderTemplate(w, "panel_l7.html", pd)
+}
+
+func handlePanelL4Submit(w http.ResponseWriter, r *http.Request) {
+	setSecurityHeaders(w)
+	if isRateLimited(getIP(r)) {
+		http.Error(w, "Rate Limit", http.StatusTooManyRequests)
+		return
+	}
+	username, ok := validateSession(r)
+	if !ok {
+		http.Redirect(w, r, "/login", 302)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		return
+	}
+	csrfToken := ensureCSRFCookie(w, r)
+	pd, err := buildPanelFormData(username, csrfToken)
+	if err != nil {
+		http.Redirect(w, r, "/logout", 302)
+		return
+	}
+
+	target := strings.TrimSpace(r.FormValue("target"))
+	methodName := strings.TrimSpace(r.FormValue("method"))
+	portRaw := strings.TrimSpace(r.FormValue("port"))
+	timeRaw := strings.TrimSpace(r.FormValue("time"))
+	concRaw := strings.TrimSpace(r.FormValue("concurrency"))
+
+	pd.FormValues = map[string]string{
+		"target":      target,
+		"method":      methodName,
+		"port":        portRaw,
+		"time":        timeRaw,
+		"concurrency": concRaw,
+	}
+
+	fieldErrors := make(map[string]string)
+	if target == "" {
+		fieldErrors["target"] = "IP address is required."
+	} else if ip := net.ParseIP(target); ip == nil || ip.To4() == nil {
+		fieldErrors["target"] = "Enter a valid IPv4 address."
+	}
+
+	port, err := strconv.Atoi(portRaw)
+	if err != nil || port < 1 || port > 65535 {
+		fieldErrors["port"] = "Port must be between 1 and 65535."
+	}
+
+	reqTime, err := strconv.Atoi(timeRaw)
+	if err != nil || reqTime <= 0 {
+		fieldErrors["time"] = "Duration must be a positive number."
+	} else if pd.MaxTime > 0 && reqTime > pd.MaxTime {
+		fieldErrors["time"] = fmt.Sprintf("Duration exceeds your plan limit (%ds).", pd.MaxTime)
+	}
+
+	reqConc, err := strconv.Atoi(concRaw)
+	if err != nil || reqConc <= 0 {
+		fieldErrors["concurrency"] = "Concurrency must be a positive number."
+	} else if pd.MaxConcurrents > 0 && reqConc > pd.MaxConcurrents {
+		fieldErrors["concurrency"] = fmt.Sprintf("Concurrency exceeds your plan limit (%d).", pd.MaxConcurrents)
+	}
+
+	if methodName == "" {
+		fieldErrors["method"] = "Select a valid method."
+	}
+
+	if isBlacklisted(target) {
+		fieldErrors["target"] = "Target is blacklisted."
+	}
+
+	cmd, err := methodCommand(methodName, "layer4")
+	if err != nil {
+		fieldErrors["method"] = "Selected method is not available."
+	}
+
+	if len(fieldErrors) > 0 {
+		pd.FieldErrors = fieldErrors
+		pd.FormError = "Please correct the highlighted fields and try again."
+		w.WriteHeader(http.StatusBadRequest)
+		renderTemplate(w, "panel_l4.html", pd)
+		return
+	}
+
+	launchAttack(username, target, strconv.Itoa(port), strconv.Itoa(reqTime), cmd, strconv.Itoa(reqConc))
+	http.Redirect(w, r, "/panel?msg=attack_sent", 302)
+}
+
+func handlePanelL7Submit(w http.ResponseWriter, r *http.Request) {
+	setSecurityHeaders(w)
+	if isRateLimited(getIP(r)) {
+		http.Error(w, "Rate Limit", http.StatusTooManyRequests)
+		return
+	}
+	username, ok := validateSession(r)
+	if !ok {
+		http.Redirect(w, r, "/login", 302)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !validateCSRF(r) {
+		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		return
+	}
+	csrfToken := ensureCSRFCookie(w, r)
+	pd, err := buildPanelFormData(username, csrfToken)
+	if err != nil {
+		http.Redirect(w, r, "/logout", 302)
+		return
+	}
+
+	target := strings.TrimSpace(r.FormValue("target"))
+	methodName := strings.TrimSpace(r.FormValue("method"))
+	timeRaw := strings.TrimSpace(r.FormValue("time"))
+	concRaw := strings.TrimSpace(r.FormValue("concurrency"))
+
+	pd.FormValues = map[string]string{
+		"target":      target,
+		"method":      methodName,
+		"time":        timeRaw,
+		"concurrency": concRaw,
+	}
+
+	fieldErrors := make(map[string]string)
+	parsedURL, err := url.ParseRequestURI(target)
+	if target == "" {
+		fieldErrors["target"] = "Target URL is required."
+	} else if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" {
+		fieldErrors["target"] = "Enter a valid http or https URL."
+	}
+
+	reqTime, err := strconv.Atoi(timeRaw)
+	if err != nil || reqTime <= 0 {
+		fieldErrors["time"] = "Duration must be a positive number."
+	} else if pd.MaxTime > 0 && reqTime > pd.MaxTime {
+		fieldErrors["time"] = fmt.Sprintf("Duration exceeds your plan limit (%ds).", pd.MaxTime)
+	}
+
+	reqConc, err := strconv.Atoi(concRaw)
+	if err != nil || reqConc <= 0 {
+		fieldErrors["concurrency"] = "Concurrency must be a positive number."
+	} else if pd.MaxConcurrents > 0 && reqConc > pd.MaxConcurrents {
+		fieldErrors["concurrency"] = fmt.Sprintf("Concurrency exceeds your plan limit (%d).", pd.MaxConcurrents)
+	}
+
+	if methodName == "" {
+		fieldErrors["method"] = "Select a valid method."
+	}
+
+	host := ""
+	if parsedURL != nil {
+		host = parsedURL.Hostname()
+	}
+	if target != "" && (isBlacklisted(target) || (host != "" && isBlacklisted(host))) {
+		fieldErrors["target"] = "Target is blacklisted."
+	}
+
+	cmd, err := methodCommand(methodName, "layer7")
+	if err != nil {
+		fieldErrors["method"] = "Selected method is not available."
+	}
+
+	if len(fieldErrors) > 0 {
+		pd.FieldErrors = fieldErrors
+		pd.FormError = "Please correct the highlighted fields and try again."
+		w.WriteHeader(http.StatusBadRequest)
+		renderTemplate(w, "panel_l7.html", pd)
+		return
+	}
+
+	port := "80"
+	if parsedURL != nil && parsedURL.Scheme == "https" {
+		port = "443"
+	}
+	if parsedURL != nil && parsedURL.Port() != "" {
+		port = parsedURL.Port()
+	}
+
+	launchAttack(username, target, port, strconv.Itoa(reqTime), cmd, strconv.Itoa(reqConc))
+	http.Redirect(w, r, "/panel?msg=attack_sent", 302)
 }
 
 func handleLogout(w http.ResponseWriter, r *http.Request) {

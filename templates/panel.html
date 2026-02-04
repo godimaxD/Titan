@@ -149,6 +149,7 @@
         [x-cloak] { display: none !important; }
     </style>
 </head><body class="flex h-screen overflow-hidden  text-white">
+<div id="toast-container" class="fixed top-6 right-6 z-[99999] flex flex-col gap-3 pointer-events-none"></div>
 <!-- MOBILE NAVIGATION (FLOATING DOCK) -->
 <div class="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-[400px]">
     <div class="glass-panel px-2 py-3 rounded-2xl flex justify-around items-center shadow-2xl bg-white/90 dark:bg-[#050505]/90 border border-black/5 dark:border-white/10 backdrop-blur-xl transition-all duration-300">
@@ -282,59 +283,38 @@
 <div class="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/10 text-gray-400 hover:text-white cursor-pointer transition"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg></div></div></header>
 
 <div class="p-6 md:p-10 overflow-y-auto h-full pb-32 md:pb-10 no-scrollbar w-full">
-    
-    <!-- ATTACK CONTROLLER -->
-    <div x-data="{ layer:'layer4', methods: {{.MethodsJSON}} }">
-        
-        <!-- LAYER SWITCH -->
-        <div class="flex justify-center gap-4 mb-8">
-            <button @click="layer='layer4'" class="glass-panel px-8 py-4 rounded-2xl w-full md:w-auto text-center border transition" :class="layer=='layer4'?'bg-white/10 border-white/20 shadow-lg shadow-indigo-500/10':'border-transparent opacity-50'">
-                <div class="font-black text-xl">L4</div>
-                <div class="text-[10px] text-gray-400">NETWORK</div>
-            </button>
-            <button @click="layer='layer7'" class="glass-panel px-8 py-4 rounded-2xl w-full md:w-auto text-center border transition" :class="layer=='layer7'?'bg-white/10 border-white/20 shadow-lg shadow-indigo-500/10':'border-transparent opacity-50'">
-                <div class="font-black text-xl">L7</div>
-                <div class="text-[10px] text-gray-400">APPLICATION</div>
-            </button>
+
+    {{if .FlashMessage}}
+    <div class="mb-6 glass-panel p-4 rounded-2xl border {{if eq .FlashType "success"}}border-green-500/30 text-green-400{{else}}border-red-500/30 text-red-400{{end}} text-sm font-semibold">
+        {{.FlashMessage}}
+    </div>
+    {{end}}
+
+    <div class="glass-panel p-6 rounded-3xl mb-6">
+        <div class="flex flex-col md:flex-row items-stretch gap-4">
+            <a href="/panel/l4" class="flex-1 glass-panel px-6 py-5 rounded-2xl text-left border border-white/10 hover:border-indigo-500/40 transition">
+                <div class="text-xs uppercase tracking-widest text-gray-400 mb-1">Layer 4</div>
+                <div class="text-xl font-black text-white">Network Launch</div>
+                <div class="text-xs text-gray-400 mt-2">IP + port based flood controls with strict validation.</div>
+            </a>
+            <a href="/panel/l7" class="flex-1 glass-panel px-6 py-5 rounded-2xl text-left border border-white/10 hover:border-indigo-500/40 transition">
+                <div class="text-xs uppercase tracking-widest text-gray-400 mb-1">Layer 7</div>
+                <div class="text-xl font-black text-white">Application Launch</div>
+                <div class="text-xs text-gray-400 mt-2">URL-driven application layer requests with scheme checks.</div>
+            </a>
         </div>
-
-        <div class="glass-panel p-6 rounded-3xl">
-            <form onsubmit="fire(event)" class="space-y-6">
-                <!-- TARGETS -->
-                <div x-show="layer=='layer4'">
-                    <div class="grid grid-cols-2 gap-4">
-                        <div><label class="text-xs font-bold text-gray-500 ml-1">IP ADDRESS</label><input id="tip" class="w-full glass-input px-4 py-3 rounded-xl font-mono text-sm border-white/10 focus:border-indigo-500/50 transition" placeholder="1.1.1.1"></div>
-                        <div><label class="text-xs font-bold text-gray-500 ml-1">PORT</label><input id="port" value="80" class="w-full glass-input px-4 py-3 rounded-xl font-mono text-sm text-center border-white/10 focus:border-indigo-500/50 transition"></div>
-                    </div>
-                </div>
-                <div x-show="layer=='layer7'" x-cloak>
-                    <label class="text-xs font-bold text-gray-500 ml-1">TARGET URL</label>
-                    <input id="turl" class="w-full glass-input px-4 py-3 rounded-xl font-mono text-sm border-white/10 focus:border-indigo-500/50 transition" placeholder="https://example.com">
-                </div>
-
-                <!-- SETTINGS -->
-                <div class="grid grid-cols-3 gap-4">
-                    <div class="col-span-2 md:col-span-1">
-                        <label class="text-xs font-bold text-gray-500 ml-1">METHOD</label>
-                        <select id="method" class="w-full glass-input px-4 py-3 rounded-xl bg-black/80 text-sm border-white/10 focus:border-indigo-500/50">
-                            <template x-for="m in methods[layer]"><option :value="m" x-text="m"></option></template>
-                        </select>
-                    </div>
-                    <div><label class="text-xs font-bold text-gray-500 ml-1">TIME (s)</label><input id="time" value="60" class="w-full glass-input px-4 py-3 rounded-xl text-center text-sm border-white/10 focus:border-indigo-500/50"></div>
-                    <div><label class="text-xs font-bold text-gray-500 ml-1">THREADS</label><input id="conc" value="1" class="w-full glass-input px-4 py-3 rounded-xl text-center text-sm border-white/10 focus:border-indigo-500/50"></div>
-                </div>
-
-                <button id="btn" class="w-full h-14 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-black tracking-widest text-white shadow-lg shadow-indigo-500/20 mt-4 transition transform hover:scale-[1.01] active:scale-[0.98]">
-                    LAUNCH ATTACK
-                </button>
-            </form>
+        <div class="mt-4 text-xs text-gray-400">
+            Select the mode to open a dedicated, validated input form. Your plan limits: <span class="text-white font-semibold">{{.MaxTime}}s</span> duration and <span class="text-white font-semibold">{{.MaxConcurrents}}</span> concurrency.
         </div>
     </div>
 
     <!-- LIVE ATTACKS TABLE -->
     <div class="mt-6 glass-panel p-6 rounded-2xl mb-12">
-        <div class="flex justify-between items-center mb-4">
-            <h3 class="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2"><svg class="w-4 h-4 text-green-400 animate-pulse" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg> Active Sessions</h3>
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+            <div>
+                <h3 class="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2"><svg class="w-4 h-4 text-green-400 animate-pulse" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg> Active Sessions</h3>
+                <div id="attack-status" class="text-xs text-gray-400 mt-1">Loading active sessions...</div>
+            </div>
             <button onclick="stopAll()" class="bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/30 px-4 py-1.5 rounded-lg text-xs font-bold transition">STOP ALL</button>
         </div>
         <div class="overflow-x-auto">
@@ -351,57 +331,37 @@
 <script>
 function showToast(m,t='success'){const c=document.getElementById('toast-container');const d=document.createElement('div');d.className=`pointer-events-auto glass-panel p-4 rounded-xl border flex items-center gap-3 shadow-2xl toast-enter border-white/10 transform translate-x-4 bg-[#111]`;d.innerHTML=`<span class="font-bold text-sm tracking-wide uppercase text-white">${m}</span>`;c.appendChild(d);setTimeout(()=>d.classList.remove('toast-enter'),10);setTimeout(()=>{d.classList.add('toast-exit-active');setTimeout(()=>d.remove(),300)},4000);}
 
-async function fire(e){
-    e.preventDefault();
-    // Use visibility to check which input to grab
-    // tip is visible for L4
-    const l4 = document.getElementById('tip');
-    const isL4 = l4.offsetWidth > 0 && l4.offsetHeight > 0;
-    
-    let t = isL4 ? l4.value : document.getElementById('turl').value;
-    let p = isL4 ? document.getElementById('port').value : '443'; 
-    let tm = document.getElementById('time').value;
-    let m = document.getElementById('method').value;
-    let c = document.getElementById('conc').value;
-
-    if(!t) { showToast('Target Required','error'); return; }
-
-    const b = document.getElementById('btn');
-    const ogText = b.innerText;
-    b.disabled = true; b.innerText = 'INITIALIZING...';
-
-    try {
-        const r = await fetch('/api/attack', {
-            method:'POST',
-            headers: {'Content-Type':'application/json', 'X-CSRF-Token': csrfToken},
-            body:JSON.stringify({target:t, port:p, time:tm, method:m, concurrency:c})
-        });
-        
-        if(r.ok) {
-            showToast('Attack Sent Successfully');
-            updateAttacks();
-        } else {
-            let txt = await r.text();
-            showToast(txt.includes('Limit') ? 'Plan Limit Reached' : 'Attack Failed', 'error');
-        }
-    } catch(x) {
-        showToast('Connection Error','error');
-    }
-    
-    setTimeout(()=>{ b.disabled=false; b.innerText=ogText; }, 1000);
-}
-
 const csrfToken = '{{.CsrfToken}}';
+const statusEl = document.getElementById('attack-status');
+
+function setStatus(message, kind='info') {
+    if (!statusEl) return;
+    statusEl.textContent = message;
+    statusEl.classList.remove('text-red-400', 'text-green-400', 'text-gray-400');
+    if (kind === 'error') {
+        statusEl.classList.add('text-red-400');
+    } else if (kind === 'success') {
+        statusEl.classList.add('text-green-400');
+    } else {
+        statusEl.classList.add('text-gray-400');
+    }
+}
 
 async function updateAttacks() {
     try {
+        setStatus('Refreshing active sessions...');
         const res = await fetch('/api/attack/list');
+        if (!res.ok) {
+            setStatus('Unable to load active sessions.', 'error');
+            return;
+        }
         const attacks = await res.json();
         const tbody = document.getElementById('attack-table');
         tbody.innerHTML = '';
         
         if(Object.keys(attacks).length === 0) {
             tbody.innerHTML = '<tr><td colspan="4" class="py-6 text-center text-gray-600 italic text-xs">No active attacks running.</td></tr>';
+            setStatus('No active sessions running.', 'success');
             return;
         }
 
@@ -422,11 +382,30 @@ async function updateAttacks() {
                 </tr>`;
             }
         }
-    } catch(e) {}
+        setStatus('Active sessions updated.', 'success');
+    } catch(e) {
+        setStatus('Unable to load active sessions.', 'error');
+    }
 }
 
-async function stopAttack(id) { await fetch('/api/attack/stop', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded', 'X-CSRF-Token': csrfToken}, body:'id=' + encodeURIComponent(id)}); updateAttacks(); }
-async function stopAll() { await fetch('/api/attack/stopAll', {method:'POST', headers:{'X-CSRF-Token': csrfToken}}); updateAttacks(); }
+async function stopAttack(id) {
+    const res = await fetch('/api/attack/stop', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded', 'X-CSRF-Token': csrfToken}, body:'id=' + encodeURIComponent(id)});
+    if (!res.ok) {
+        showToast('Failed to stop session', 'error');
+        setStatus('Failed to stop session.', 'error');
+        return;
+    }
+    updateAttacks();
+}
+async function stopAll() {
+    const res = await fetch('/api/attack/stopAll', {method:'POST', headers:{'X-CSRF-Token': csrfToken}});
+    if (!res.ok) {
+        showToast('Failed to stop sessions', 'error');
+        setStatus('Failed to stop sessions.', 'error');
+        return;
+    }
+    updateAttacks();
+}
 
 setInterval(updateAttacks, 1000);
 updateAttacks();
