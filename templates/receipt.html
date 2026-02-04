@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <title>Receipt #{{.ID}}</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <script>
+        if (localStorage.theme === 'light') document.documentElement.classList.remove('dark');
+        else document.documentElement.classList.add('dark');
+    </script>
+    <style>
+        body { transition: background 0.3s, color 0.3s; }
+        body { background: linear-gradient(135deg, #CCCCFF 0%, #7DF9FF 100%); color: black; }
+        .glass { background: rgba(255,255,255,0.9); border: 1px solid black; box-shadow: 12px 12px 0px rgba(0,0,0,0.15); backdrop-filter: blur(20px); }
+        .dark body { background: #020204; color: white; }
+        .dark .glass { background: rgba(20,20,26,0.9); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
+        @media print {
+            .no-print { display: none !important; }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-6">
+    <div class="glass w-full max-w-3xl rounded-3xl p-8 md:p-10">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-8">
+            <div>
+                <p class="text-xs uppercase tracking-widest opacity-60 font-mono">Receipt / Invoice</p>
+                <h1 class="text-3xl font-black">Titan Deposit Receipt</h1>
+                <p class="text-xs opacity-70 mt-2">Receipt ID: <span class="font-mono">{{.ID}}</span></p>
+            </div>
+            <div class="text-left md:text-right">
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest {{if eq .Status "Paid"}}bg-green-500/10 text-green-600 dark:text-green-400{{else if eq .Status "Pending"}}bg-yellow-500/10 text-yellow-600 dark:text-yellow-400{{else}}bg-red-500/10 text-red-600 dark:text-red-400{{end}}">{{.Status}}</span>
+                <div class="text-sm opacity-70 mt-2">Created: {{.CreatedAt}}</div>
+                <div class="text-sm opacity-70">Confirmed: {{if .ConfirmedAt}}{{.ConfirmedAt}}{{else}}Not yet confirmed{{end}}</div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="space-y-4">
+                <div class="bg-black/5 dark:bg-black/40 rounded-xl p-5 border border-black/10 dark:border-white/10">
+                    <p class="text-[10px] uppercase tracking-widest opacity-60 font-bold mb-2">Customer</p>
+                    <div class="text-sm font-bold">Username: <span class="font-mono">{{.Username}}</span></div>
+                    <div class="text-sm opacity-70">User ID: <span class="font-mono">{{.UserID}}</span></div>
+                </div>
+                <div class="bg-black/5 dark:bg-black/40 rounded-xl p-5 border border-black/10 dark:border-white/10">
+                    <p class="text-[10px] uppercase tracking-widest opacity-60 font-bold mb-2">Payment Details</p>
+                    <div class="text-sm">Wallet Address:</div>
+                    <code class="block text-xs font-mono break-all text-indigo-600 dark:text-indigo-300">{{.Address}}</code>
+                    <div class="text-sm mt-3">Transaction Hash:</div>
+                    <code class="block text-xs font-mono break-all">{{.TxID}}</code>
+                </div>
+            </div>
+
+            <div class="space-y-4">
+                <div class="bg-black/5 dark:bg-black/40 rounded-xl p-5 border border-black/10 dark:border-white/10">
+                    <p class="text-[10px] uppercase tracking-widest opacity-60 font-bold mb-2">Amount Summary</p>
+                    <div class="flex items-center justify-between text-lg font-bold">
+                        <span>Total (USD)</span>
+                        <span>${{.UsdAmount}}</span>
+                    </div>
+                    <div class="flex items-center justify-between text-sm opacity-80 mt-2">
+                        <span>Amount ({{.Currency}})</span>
+                        <span>{{.Amount}} {{.Currency}}</span>
+                    </div>
+                    <div class="flex items-center justify-between text-sm opacity-80 mt-2">
+                        <span>Fees</span>
+                        <span>{{.Fee}} {{.Currency}}</span>
+                    </div>
+                </div>
+                <div class="bg-black/5 dark:bg-black/40 rounded-xl p-5 border border-black/10 dark:border-white/10">
+                    <p class="text-[10px] uppercase tracking-widest opacity-60 font-bold mb-2">Notes</p>
+                    <p class="text-sm opacity-80">{{.Notes}}</p>
+                </div>
+            </div>
+        </div>
+
+        {{if not .IsDownload}}
+        <div class="mt-8 flex flex-col sm:flex-row gap-3 no-print">
+            <a href="/receipt/download?id={{.ID}}" class="flex-1 bg-black dark:bg-white text-white dark:text-black font-bold py-3 rounded-xl hover:opacity-80 transition text-sm uppercase tracking-widest text-center">Download Receipt</a>
+            <a href="/deposit" class="flex-1 border border-black/20 dark:border-white/20 font-bold py-3 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition text-sm uppercase tracking-widest text-center">Back to Deposit</a>
+        </div>
+        {{end}}
+    </div>
+</body>
+</html>

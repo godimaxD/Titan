@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <title>Deposit Payment | TITAN</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <script>
+        if (localStorage.theme === 'light') document.documentElement.classList.remove('dark');
+        else document.documentElement.classList.add('dark');
+    </script>
+    <style>
+        body { transition: background 0.3s, color 0.3s; }
+        body { background: linear-gradient(135deg, #CCCCFF 0%, #7DF9FF 100%); color: black; }
+        .glass { background: rgba(255,255,255,0.9); border: 1px solid black; box-shadow: 12px 12px 0px rgba(0,0,0,0.15); backdrop-filter: blur(20px); }
+        .dark body { background: #020204; color: white; }
+        .dark .glass { background: rgba(20,20,26,0.9); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
+        .hidden-screen { display: none !important; }
+        .flex-screen { display: flex !important; }
+        @keyframes pulse-dot { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
+        .dot { width: 8px; height: 8px; background: #4ade80; border-radius: 50%; animation: pulse-dot 1.5s infinite; }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen relative overflow-hidden font-sans p-6">
+    <div class="absolute w-[600px] h-[600px] bg-indigo-900/20 rounded-full blur-[120px] -top-20 -left-20 pointer-events-none"></div>
+
+    <div class="absolute top-8 left-8 z-50">
+        <a href="/deposit" class="flex items-center gap-2 text-gray-500 dark:text-gray-400 hover:text-black dark:hover:text-white transition group">
+            <span class="font-bold text-sm">Back to Deposit</span>
+        </a>
+    </div>
+
+    <div class="glass w-full max-w-3xl rounded-3xl relative z-10 overflow-hidden transition-all duration-300">
+        <div class="p-8 md:p-10">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-8">
+                <div>
+                    <p class="text-xs uppercase tracking-widest opacity-50 font-mono">Deposit ID</p>
+                    <h1 class="text-2xl md:text-3xl font-black tracking-tight">{{.ID}}</h1>
+                    <p class="text-xs mt-2 opacity-70">Send payment to the address below to complete your deposit.</p>
+                </div>
+                <div class="text-left md:text-right">
+                    <p class="text-xs uppercase tracking-widest opacity-50 font-mono">Amount Due</p>
+                    <div class="text-3xl font-black text-green-600 dark:text-green-400 font-mono">{{.Amount}} {{.Currency}}</div>
+                    <div class="text-xs opacity-70">≈ ${{.UsdAmount}}</div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-[220px,1fr] gap-6">
+                <div class="bg-white dark:bg-black/40 p-4 rounded-2xl border border-black/10 dark:border-white/10 flex items-center justify-center">
+                    <img id="qr-image" class="w-40 h-40" alt="QR code">
+                </div>
+                <div class="space-y-5">
+                    <div class="bg-black/5 dark:bg-black/40 rounded-xl p-5 border border-black/10 dark:border-white/10">
+                        <p class="text-[10px] uppercase tracking-widest opacity-60 font-bold mb-2">Wallet Address</p>
+                        <div class="flex flex-col sm:flex-row gap-2">
+                            <code id="wallet-address" class="block flex-1 bg-white dark:bg-black/50 p-3 rounded-lg text-xs text-indigo-600 dark:text-indigo-300 font-mono break-all border border-black/10 dark:border-white/5">{{.Address}}</code>
+                            <button id="copy-btn" class="bg-black dark:bg-white text-white dark:text-black px-4 rounded-lg font-bold text-xs uppercase hover:opacity-80 transition">Copy</button>
+                        </div>
+                    </div>
+                    <div class="bg-black/5 dark:bg-black/40 rounded-xl p-5 border border-black/10 dark:border-white/10 text-sm space-y-2">
+                        <p class="text-[10px] uppercase tracking-widest opacity-60 font-bold">Instructions</p>
+                        <ul class="list-disc pl-5 space-y-1 opacity-80">
+                            <li>Send exactly <span class="font-bold">{{.Amount}} {{.Currency}}</span> to the address above.</li>
+                            <li>Payments must be completed before <span class="font-bold">{{.ExpiresAt}}</span>.</li>
+                            <li>Network fees are paid by the sender.</li>
+                        </ul>
+                    </div>
+                    <div class="flex items-center justify-between text-xs font-mono opacity-70">
+                        <div class="flex items-center gap-2">
+                            <div class="dot"></div>
+                            <span id="status-text">Waiting for payment...</span>
+                        </div>
+                        <div>
+                            <span class="uppercase tracking-widest">Time Left:</span>
+                            <span id="timer-display">--:--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="paid-view" class="hidden-screen flex-col items-center justify-center p-10 text-center border-t border-black/10 dark:border-white/10 bg-white/70 dark:bg-black/40">
+            <div class="w-20 h-20 bg-green-500 text-white rounded-full flex items-center justify-center mb-4 shadow-2xl">
+                <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+            </div>
+            <h2 class="text-2xl font-black mb-2">Payment Confirmed</h2>
+            <p class="opacity-70 text-sm mb-6">Your deposit has been confirmed and credited.</p>
+            <div class="flex flex-col sm:flex-row gap-3 w-full max-w-md">
+                <a href="/receipt?id={{.ID}}" class="flex-1 bg-black dark:bg-white text-white dark:text-black font-bold py-3 rounded-xl hover:opacity-80 transition text-sm uppercase tracking-widest text-center">View Receipt</a>
+                <a href="/receipt/download?id={{.ID}}" class="flex-1 border border-black/20 dark:border-white/20 font-bold py-3 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition text-sm uppercase tracking-widest text-center">Download Receipt</a>
+            </div>
+        </div>
+
+        <div id="rejected-view" class="hidden-screen flex-col items-center justify-center p-10 text-center border-t border-black/10 dark:border-white/10 bg-white/70 dark:bg-black/40">
+            <div class="w-20 h-20 bg-red-600 text-white rounded-full flex items-center justify-center mb-4 shadow-2xl">
+                <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"/></svg>
+            </div>
+            <h2 class="text-2xl font-black mb-2" id="reject-title">Payment Issue</h2>
+            <p class="opacity-70 text-sm mb-6" id="reject-message">This deposit could not be completed. Please return and try again.</p>
+            <a href="/deposit" class="w-full max-w-md border border-black/20 dark:border-white/20 font-bold py-3 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition text-sm uppercase tracking-widest text-center">Back to Deposit</a>
+        </div>
+    </div>
+
+    <script>
+        const statusText = document.getElementById('status-text');
+        const invoiceID = "{{.ID}}";
+        const address = "{{.Address}}";
+        const amount = "{{.Amount}}";
+        const qrImage = document.getElementById('qr-image');
+        const timerEl = document.getElementById('timer-display');
+        const copyBtn = document.getElementById('copy-btn');
+        const rejectTitle = document.getElementById('reject-title');
+        const rejectMessage = document.getElementById('reject-message');
+        let currentStatus = "{{.Status}}";
+        let seconds = parseInt("{{.ExpiresInSeconds}}") || 0;
+
+        const qrData = encodeURIComponent(`tron:${address}?amount=${amount}`);
+        qrImage.src = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${qrData}`;
+
+        copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(address);
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+        });
+
+        if (currentStatus === 'Paid') showPaid();
+        if (currentStatus === 'Rejected' || currentStatus === 'Expired') showRejected(currentStatus);
+
+        const timerInt = setInterval(() => {
+            if (seconds > 0) {
+                seconds--;
+                const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+                const s = (seconds % 60).toString().padStart(2, '0');
+                timerEl.innerText = `${m}:${s}`;
+            } else {
+                clearInterval(timerInt);
+                if (currentStatus === 'Pending') {
+                    showRejected('Expired');
+                }
+            }
+        }, 1000);
+
+        setInterval(async () => {
+            if (currentStatus !== 'Pending') return;
+            try {
+                const res = await fetch(`/api/deposit/check?id=${invoiceID}&_=${Date.now()}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                statusText.innerText = "Checking for payment...";
+                if (data.status === 'Paid') {
+                    currentStatus = 'Paid';
+                    showPaid();
+                } else if (data.status === 'Rejected' || data.status === 'Expired') {
+                    currentStatus = data.status;
+                    showRejected(data.status);
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }, 3000);
+
+        function showPaid() {
+            document.getElementById('paid-view').classList.remove('hidden-screen');
+            document.getElementById('paid-view').classList.add('flex-screen');
+        }
+
+        function showRejected(reason) {
+            if (reason === 'Expired') {
+                rejectTitle.textContent = 'Payment Expired';
+                rejectMessage.textContent = 'This deposit expired before payment was received.';
+            } else {
+                rejectTitle.textContent = 'Payment Rejected';
+                rejectMessage.textContent = 'This deposit was rejected. Please contact support if you need help.';
+            }
+            document.getElementById('rejected-view').classList.remove('hidden-screen');
+            document.getElementById('rejected-view').classList.add('flex-screen');
+        }
+    </script>
+</body>
+</html>

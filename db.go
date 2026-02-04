@@ -27,7 +27,7 @@ func initDB() {
 		`CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price REAL, time INTEGER, concurrents INTEGER, vip BOOLEAN, api_access BOOLEAN);`,
 		`CREATE TABLE IF NOT EXISTS plans (name TEXT PRIMARY KEY, concurrents INTEGER, max_time INTEGER, vip BOOLEAN, api BOOLEAN);`,
 		`CREATE TABLE IF NOT EXISTS redeem_codes (code TEXT PRIMARY KEY, plan TEXT, used BOOLEAN);`,
-		`CREATE TABLE IF NOT EXISTS deposits (id TEXT PRIMARY KEY, user_id TEXT, amount REAL, address TEXT, status TEXT, date TEXT, expires INTEGER, usd_amount REAL DEFAULT 0);`,
+		`CREATE TABLE IF NOT EXISTS deposits (id TEXT PRIMARY KEY, user_id TEXT, amount REAL, address TEXT, status TEXT, date TEXT, expires INTEGER, usd_amount REAL DEFAULT 0, confirmed_at TEXT, txid TEXT, fee REAL DEFAULT 0, notes TEXT);`,
 		`CREATE TABLE IF NOT EXISTS wallets (address TEXT PRIMARY KEY, private_key TEXT, status TEXT, assigned_to TEXT);`,
 		`CREATE TABLE IF NOT EXISTS blacklist (target TEXT PRIMARY KEY, reason TEXT, date TEXT);`,
 		`CREATE TABLE IF NOT EXISTS methods (name TEXT PRIMARY KEY, layer TEXT, command TEXT, enabled BOOLEAN DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`,
@@ -40,6 +40,10 @@ func initDB() {
 
 	// Migrations (ignore errors if columns exist)
 	db.Exec("ALTER TABLE deposits ADD COLUMN usd_amount REAL DEFAULT 0;")
+	db.Exec("ALTER TABLE deposits ADD COLUMN confirmed_at TEXT;")
+	db.Exec("ALTER TABLE deposits ADD COLUMN txid TEXT;")
+	db.Exec("ALTER TABLE deposits ADD COLUMN fee REAL DEFAULT 0;")
+	db.Exec("ALTER TABLE deposits ADD COLUMN notes TEXT;")
 	db.Exec("ALTER TABLE users ADD COLUMN ref_code TEXT;")
 	db.Exec("ALTER TABLE users ADD COLUMN referred_by TEXT;")
 	db.Exec("ALTER TABLE users ADD COLUMN ref_earnings REAL DEFAULT 0;")
