@@ -20,6 +20,7 @@ func initDB() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	db.Exec("PRAGMA busy_timeout = 5000")
 
 	tables := []string{
 		`CREATE TABLE IF NOT EXISTS users (
@@ -90,44 +91,9 @@ func initDB() {
 	db.Exec("UPDATE methods SET layer='layer4' WHERE layer IS NULL OR layer=''")
 	db.Exec("UPDATE wallets SET assigned_to=NULL WHERE assigned_to IS NOT NULL AND TRIM(assigned_to) = ''")
 	db.Exec("UPDATE wallets SET status='Free' WHERE status IS NULL OR TRIM(status) = ''")
-	nowUnix := time.Now().Unix()
-	db.Exec(`
-		UPDATE wallets
-		SET status='Free'
-		WHERE status NOT IN ('Free', 'Busy', '')
-			AND (assigned_to IS NULL OR TRIM(assigned_to) = '')
-			AND NOT EXISTS (
-				SELECT 1 FROM deposits d
-				WHERE d.address = wallets.address
-					AND lower(d.status) = 'pending'
-					AND (d.expires IS NULL OR d.expires = 0 OR d.expires > ?)
-			)
-	`, nowUnix)
-	db.Exec(`
-		UPDATE wallets
-		SET status='Free'
-		WHERE lower(status) = 'busy'
-			AND (assigned_to IS NULL OR TRIM(assigned_to) = '')
-			AND NOT EXISTS (
-				SELECT 1 FROM deposits d
-				WHERE d.address = wallets.address
-					AND lower(d.status) = 'pending'
-					AND (d.expires IS NULL OR d.expires = 0 OR d.expires > ?)
-			)
-	`, nowUnix)
-	db.Exec(`
-		UPDATE wallets
-		SET assigned_to=NULL
-		WHERE (status IS NULL OR TRIM(status) = '' OR lower(status) = 'free')
-			AND assigned_to IS NOT NULL
-			AND TRIM(assigned_to) != ''
-			AND NOT EXISTS (
-				SELECT 1 FROM deposits d
-				WHERE d.address = wallets.address
-					AND lower(d.status) = 'pending'
-					AND (d.expires IS NULL OR d.expires = 0 OR d.expires > ?)
-			)
-	`, nowUnix)
+	if err := normalizeWallets(time.Now()); err != nil {
+		log.Printf("Wallet normalization failed: %v", err)
+	}
 
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_deposits_user_id ON deposits(user_id);")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);")
@@ -183,6 +149,86 @@ func initDB() {
 	}
 	rotateDefaultAdminAPIToken()
 	migrateWalletPrivateKeys()
+}
+
+func normalizeWallets(now time.Time) error {
+	updates := []struct {
+		query string
+		args  []any
+	}{
+		{
+			query: "UPDATE wallets SET assigned_to=NULL WHERE assigned_to IS NOT NULL AND TRIM(assigned_to) = ''",
+		},
+		{
+			query: "UPDATE wallets SET status='Free' WHERE status IS NULL OR TRIM(status) = ''",
+		},
+		{
+			query: `
+				UPDATE wallets
+				SET status='Busy'
+				WHERE (status IS NULL OR TRIM(status) = '' OR lower(status) = 'free')
+					AND assigned_to IS NOT NULL
+					AND TRIM(assigned_to) != ''
+					AND EXISTS (
+						SELECT 1 FROM deposits d
+						WHERE d.id = wallets.assigned_to
+							AND lower(d.status) = 'pending'
+							AND (d.expires IS NULL OR d.expires = 0 OR d.expires > ?)
+					)
+			`,
+			args: []any{now.Unix()},
+		},
+		{
+			query: `
+				UPDATE wallets
+				SET status='Free', assigned_to=NULL
+				WHERE assigned_to IS NOT NULL
+					AND TRIM(assigned_to) != ''
+					AND NOT EXISTS (
+						SELECT 1 FROM deposits d
+						WHERE d.id = wallets.assigned_to
+							AND lower(d.status) = 'pending'
+							AND (d.expires IS NULL OR d.expires = 0 OR d.expires > ?)
+					)
+			`,
+			args: []any{now.Unix()},
+		},
+		{
+			query: `
+				UPDATE wallets
+				SET status='Free', assigned_to=NULL
+				WHERE lower(status) = 'busy'
+					AND NOT EXISTS (
+						SELECT 1 FROM deposits d
+						WHERE d.address = wallets.address
+							AND lower(d.status) = 'pending'
+							AND (d.expires IS NULL OR d.expires = 0 OR d.expires > ?)
+					)
+			`,
+			args: []any{now.Unix()},
+		},
+		{
+			query: `
+				UPDATE wallets
+				SET status='Free'
+				WHERE status NOT IN ('Free', 'Busy', '')
+					AND (assigned_to IS NULL OR TRIM(assigned_to) = '')
+					AND NOT EXISTS (
+						SELECT 1 FROM deposits d
+						WHERE d.address = wallets.address
+							AND lower(d.status) = 'pending'
+							AND (d.expires IS NULL OR d.expires = 0 OR d.expires > ?)
+					)
+			`,
+			args: []any{now.Unix()},
+		},
+	}
+	for _, update := range updates {
+		if _, err := db.Exec(update.query, update.args...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func initialAdminPassword() (string, bool) {

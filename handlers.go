@@ -324,14 +324,17 @@ func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := db.Begin()
 	if err != nil {
+		logDepositError("create_deposit", "", 0, getUserIDByUsername(username), "DB_ERROR", err, nil)
 		http.Redirect(w, r, "/deposit?err=db", http.StatusFound)
 		return
 	}
 
 	now := time.Now()
 	if err := expirePendingDepositsTx(tx, now); err != nil {
-		logDepositWalletFailure(tx, "db error", err)
-		tx.Rollback()
+		if rollbackErr := tx.Rollback(); rollbackErr != nil {
+			err = fmt.Errorf("expire pending: %w; rollback: %v", err, rollbackErr)
+		}
+		logDepositError("expire_pending_deposits", "", 0, getUserIDByUsername(username), "DB_ERROR", err, nil)
 		http.Redirect(w, r, "/deposit?err=db", http.StatusFound)
 		return
 	}
@@ -340,7 +343,10 @@ func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
 	if requestID != "" {
 		res, err := tx.Exec("INSERT OR IGNORE INTO idempotency_keys (key, user_id, action, reference_id, created_at) VALUES (?, ?, ?, ?, ?)", requestID, username, "deposit", depID, time.Now().Unix())
 		if err != nil {
-			tx.Rollback()
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				err = fmt.Errorf("idempotency insert: %w; rollback: %v", err, rollbackErr)
+			}
+			logDepositError("create_deposit", depID, 0, getUserIDByUsername(username), "DB_ERROR", err, nil)
 			http.Redirect(w, r, "/deposit?err=db", http.StatusFound)
 			return
 		}
@@ -375,40 +381,32 @@ func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	walletRow, err := selectUsableWalletTx(tx, now)
+	walletRow, err := reserveUsableWalletTx(tx, now, depID)
 	if err != nil {
-		if errors.Is(err, errNoUsableWallets) || errors.Is(err, errInvalidWalletRows) {
-			reason := "no wallets"
-			if errors.Is(err, errInvalidWalletRows) {
-				reason = "invalid wallet rows"
+		if errors.Is(err, errNoUsableWallets) || errors.Is(err, errInvalidWalletRows) || errors.Is(err, errWalletReservation) {
+			diag, diagErr := walletDiagnosticsTx(tx, now)
+			if diagErr != nil {
+				diag = nil
 			}
-			logDepositWalletFailure(tx, reason, err)
-			tx.Rollback()
+			category := "NO_USABLE_WALLETS"
+			if errors.Is(err, errInvalidWalletRows) {
+				category = "INVALID_WALLET_ROWS"
+			}
+			if errors.Is(err, errWalletReservation) {
+				category = "WALLET_RESERVATION_CONFLICT"
+			}
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				err = fmt.Errorf("wallet reserve: %w; rollback: %v", err, rollbackErr)
+			}
+			logDepositError("reserve_wallet", depID, 0, getUserIDByUsername(username), category, err, diag)
 			http.Redirect(w, r, "/deposit?err=wallets", http.StatusFound)
 			return
 		}
-		logDepositWalletFailure(tx, "db error", err)
-		tx.Rollback()
+		if rollbackErr := tx.Rollback(); rollbackErr != nil {
+			err = fmt.Errorf("wallet reserve: %w; rollback: %v", err, rollbackErr)
+		}
+		logDepositError("reserve_wallet", depID, 0, getUserIDByUsername(username), "DB_ERROR", err, nil)
 		http.Redirect(w, r, "/deposit?err=db", http.StatusFound)
-		return
-	}
-
-	res, err := tx.Exec(fmt.Sprintf(`
-		UPDATE wallets
-		SET status='Busy', assigned_to=?
-		WHERE address=?
-			AND %s
-	`, walletUsableSQL), depID, walletRow.Address, now.Unix())
-	if err != nil {
-		logDepositWalletFailure(tx, "db error", err)
-		tx.Rollback()
-		http.Redirect(w, r, "/deposit?err=db", http.StatusFound)
-		return
-	}
-	if rows, _ := res.RowsAffected(); rows == 0 {
-		logDepositWalletFailure(tx, "no wallets", errNoUsableWallets)
-		tx.Rollback()
-		http.Redirect(w, r, "/deposit?err=wallets", http.StatusFound)
 		return
 	}
 	expires := time.Now().Add(15 * time.Minute).Unix()
@@ -417,14 +415,19 @@ func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
 		depID, username, trxAmount, usdAmt, walletRow.Address, time.Now().Format("2006-01-02 15:04"), expires)
 
 	if err != nil {
-		logDepositWalletFailure(tx, "db error", err)
-		tx.Rollback()
+		if rollbackErr := tx.Rollback(); rollbackErr != nil {
+			err = fmt.Errorf("deposit insert: %w; rollback: %v", err, rollbackErr)
+		}
+		logDepositError("create_deposit", depID, walletRow.RowID, getUserIDByUsername(username), "DEPOSIT_INSERT_FAILED", err, nil)
 		http.Redirect(w, r, "/deposit?err=db", http.StatusFound)
 		return
 	}
 
 	if err := tx.Commit(); err != nil {
-		tx.Rollback()
+		if rollbackErr := tx.Rollback(); rollbackErr != nil {
+			err = fmt.Errorf("commit: %w; rollback: %v", err, rollbackErr)
+		}
+		logDepositError("create_deposit", depID, walletRow.RowID, getUserIDByUsername(username), "TX_COMMIT_FAILED", err, nil)
 		http.Redirect(w, r, "/deposit?err=db", http.StatusFound)
 		return
 	}
@@ -484,14 +487,27 @@ func handleDepositPayPage(w http.ResponseWriter, r *http.Request) {
 	if !d.Expires.IsZero() && d.Status == "Pending" && time.Now().After(d.Expires) {
 		now := time.Now()
 		tx, err := db.Begin()
-		if err == nil {
-			if _, err := tx.Exec("UPDATE deposits SET status='Expired' WHERE id = ? AND lower(status)='pending'", d.ID); err == nil {
-				_ = releaseWalletForDepositTx(tx, d.ID, now)
-				if err := tx.Commit(); err == nil {
-					d.Status = "Expired"
+		if err != nil {
+			logDepositError("expire_deposit", d.ID, 0, getUserIDByUsername(username), "DB_ERROR", err, nil)
+		} else {
+			if _, err := tx.Exec("UPDATE deposits SET status='Expired' WHERE id = ? AND lower(status)='pending'", d.ID); err != nil {
+				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+					err = fmt.Errorf("expire update: %w; rollback: %v", err, rollbackErr)
 				}
+				logDepositError("expire_deposit", d.ID, 0, getUserIDByUsername(username), "DEPOSIT_UPDATE_FAILED", err, nil)
+			} else if err := releaseWalletForDepositTx(tx, d.ID, now); err != nil {
+				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+					err = fmt.Errorf("release wallet: %w; rollback: %v", err, rollbackErr)
+				}
+				logDepositError("release_wallet", d.ID, 0, getUserIDByUsername(username), "WALLET_RELEASE_FAILED", err, nil)
+			} else if err := tx.Commit(); err != nil {
+				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+					err = fmt.Errorf("expire commit: %w; rollback: %v", err, rollbackErr)
+				}
+				logDepositError("expire_deposit", d.ID, 0, getUserIDByUsername(username), "TX_COMMIT_FAILED", err, nil)
+			} else {
+				d.Status = "Expired"
 			}
-			_ = tx.Rollback()
 		}
 	}
 	remaining := int(time.Until(d.Expires).Seconds())
@@ -586,14 +602,27 @@ func handleCheckDeposit(w http.ResponseWriter, r *http.Request) {
 	if !expires.IsZero() && status == "Pending" && time.Now().After(expires) {
 		now := time.Now()
 		tx, err := db.Begin()
-		if err == nil {
-			if _, err := tx.Exec("UPDATE deposits SET status='Expired' WHERE id = ? AND lower(status)='pending'", id); err == nil {
-				_ = releaseWalletForDepositTx(tx, id, now)
-				if err := tx.Commit(); err == nil {
-					status = "Expired"
+		if err != nil {
+			logDepositError("expire_deposit", id, 0, getUserIDByUsername(username), "DB_ERROR", err, nil)
+		} else {
+			if _, err := tx.Exec("UPDATE deposits SET status='Expired' WHERE id = ? AND lower(status)='pending'", id); err != nil {
+				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+					err = fmt.Errorf("expire update: %w; rollback: %v", err, rollbackErr)
 				}
+				logDepositError("expire_deposit", id, 0, getUserIDByUsername(username), "DEPOSIT_UPDATE_FAILED", err, nil)
+			} else if err := releaseWalletForDepositTx(tx, id, now); err != nil {
+				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+					err = fmt.Errorf("release wallet: %w; rollback: %v", err, rollbackErr)
+				}
+				logDepositError("release_wallet", id, 0, getUserIDByUsername(username), "WALLET_RELEASE_FAILED", err, nil)
+			} else if err := tx.Commit(); err != nil {
+				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+					err = fmt.Errorf("expire commit: %w; rollback: %v", err, rollbackErr)
+				}
+				logDepositError("expire_deposit", id, 0, getUserIDByUsername(username), "TX_COMMIT_FAILED", err, nil)
+			} else {
+				status = "Expired"
 			}
-			_ = tx.Rollback()
 		}
 	}
 	normalized := normalizeDepositStatus(status)
@@ -2115,32 +2144,50 @@ func handleDepositAction(w http.ResponseWriter, r *http.Request) {
 	action := r.FormValue("action")
 	tx, err := db.Begin()
 	if err != nil {
+		logDepositError("admin_deposit_action", id, 0, getUserIDByUsername(u), "DB_ERROR", err, nil)
 		http.Error(w, "Database Error", http.StatusInternalServerError)
 		return
 	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
 	if action == "confirm" {
 		var user string
 		var usd float64
 		if err := tx.QueryRow("SELECT user_id, usd_amount FROM deposits WHERE id=?", id).Scan(&user, &usd); err != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				err = fmt.Errorf("query deposit: %w; rollback: %v", err, rollbackErr)
+			}
+			logDepositError("admin_deposit_action", id, 0, getUserIDByUsername(u), "DB_ERROR", err, nil)
 			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
 			return
 		}
 		if _, err := tx.Exec("UPDATE deposits SET status='Paid', confirmed_at=? WHERE id=?", time.Now().Format("2006-01-02 15:04"), id); err != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				err = fmt.Errorf("deposit update: %w; rollback: %v", err, rollbackErr)
+			}
+			logDepositError("admin_deposit_action", id, 0, getUserIDByUsername(user), "DEPOSIT_UPDATE_FAILED", err, nil)
 			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
 			return
 		}
 		if _, err := tx.Exec("UPDATE users SET balance=balance+? WHERE username=?", usd, user); err != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				err = fmt.Errorf("update balance: %w; rollback: %v", err, rollbackErr)
+			}
+			logDepositError("admin_deposit_action", id, 0, getUserIDByUsername(user), "DB_ERROR", err, nil)
 			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
 			return
 		}
 		if err := releaseWalletForDepositTx(tx, id, time.Now()); err != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				err = fmt.Errorf("release wallet: %w; rollback: %v", err, rollbackErr)
+			}
+			logDepositError("release_wallet", id, 0, getUserIDByUsername(user), "WALLET_RELEASE_FAILED", err, nil)
 			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
 			return
 		}
 		if err := tx.Commit(); err != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				err = fmt.Errorf("commit: %w; rollback: %v", err, rollbackErr)
+			}
+			logDepositError("admin_deposit_action", id, 0, getUserIDByUsername(user), "TX_COMMIT_FAILED", err, nil)
 			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
 			return
 		}
@@ -2159,15 +2206,36 @@ func handleDepositAction(w http.ResponseWriter, r *http.Request) {
 			},
 		})
 	} else {
+		var user string
+		if err := tx.QueryRow("SELECT user_id FROM deposits WHERE id=?", id).Scan(&user); err != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				err = fmt.Errorf("query deposit: %w; rollback: %v", err, rollbackErr)
+			}
+			logDepositError("admin_deposit_action", id, 0, getUserIDByUsername(u), "DB_ERROR", err, nil)
+			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
+			return
+		}
 		if _, err := tx.Exec("UPDATE deposits SET status='Rejected' WHERE id=?", id); err != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				err = fmt.Errorf("deposit update: %w; rollback: %v", err, rollbackErr)
+			}
+			logDepositError("admin_deposit_action", id, 0, getUserIDByUsername(user), "DEPOSIT_UPDATE_FAILED", err, nil)
 			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
 			return
 		}
 		if err := releaseWalletForDepositTx(tx, id, time.Now()); err != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				err = fmt.Errorf("release wallet: %w; rollback: %v", err, rollbackErr)
+			}
+			logDepositError("release_wallet", id, 0, getUserIDByUsername(user), "WALLET_RELEASE_FAILED", err, nil)
 			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
 			return
 		}
 		if err := tx.Commit(); err != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				err = fmt.Errorf("commit: %w; rollback: %v", err, rollbackErr)
+			}
+			logDepositError("admin_deposit_action", id, 0, getUserIDByUsername(user), "TX_COMMIT_FAILED", err, nil)
 			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
 			return
 		}
