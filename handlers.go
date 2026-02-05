@@ -108,8 +108,87 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	setSecurityHeaders(w)
 	token := ensureCSRFCookie(w, r)
+	useTokenLogin := r.URL.Query().Get("mode") == "token"
 	msg, msgType := flashMessageFromQuery(r)
-	renderTemplate(w, "login.html", PageData{CsrfToken: token, FlashMessage: msg, FlashType: msgType})
+	renderTemplate(w, "login.html", PageData{
+		CsrfToken:     token,
+		FlashMessage:  msg,
+		FlashType:     msgType,
+		UseTokenLogin: useTokenLogin,
+	})
+}
+
+func handleTokenLogin(w http.ResponseWriter, r *http.Request) {
+	setSecurityHeaders(w)
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/login?mode=token", http.StatusFound)
+		return
+	}
+	if isRateLimited(getIP(r)) {
+		LogActivity(r, ActivityLogEntry{
+			ActorType: actorTypeUser,
+			Action:    "AUTH_TOKEN_LOGIN_RATE_LIMIT",
+			Severity:  severityWarn,
+			Message:   "Token login rate limited.",
+		})
+		http.Redirect(w, r, "/login?err=rate_limit&mode=token", http.StatusFound)
+		return
+	}
+	if !validateCSRF(r) {
+		LogActivity(r, ActivityLogEntry{
+			ActorType: actorTypeUser,
+			Action:    "AUTH_TOKEN_LOGIN_CSRF_FAIL",
+			Severity:  severityWarn,
+			Message:   "Token login blocked by CSRF validation.",
+		})
+		http.Redirect(w, r, "/login?err=csrf&mode=token", http.StatusFound)
+		return
+	}
+
+	token := strings.TrimSpace(r.FormValue("token"))
+	if token == "" {
+		http.Redirect(w, r, "/login?err=invalid_token&mode=token", http.StatusFound)
+		return
+	}
+	usr, ok := getUserByToken(token)
+	if !ok {
+		LogActivity(r, ActivityLogEntry{
+			ActorType: actorTypeUser,
+			Action:    "AUTH_TOKEN_LOGIN_FAILED",
+			Severity:  severityWarn,
+			Message:   "Token login failed due to invalid token.",
+		})
+		http.Redirect(w, r, "/login?err=invalid_token&mode=token", http.StatusFound)
+		return
+	}
+	db.Exec("DELETE FROM sessions WHERE username=?", usr.Username)
+	sessionToken := createSession(usr.Username, r)
+	if sessionToken == "" {
+		LogActivity(r, ActivityLogEntry{
+			ActorType: actorTypeUser,
+			ActorID:   getUserIDByUsername(usr.Username),
+			Username:  usr.Username,
+			Action:    "AUTH_TOKEN_LOGIN_FAILED",
+			Severity:  severityError,
+			Message:   "Token login failed while creating session.",
+		})
+		http.Redirect(w, r, "/login?err=session&mode=token", http.StatusFound)
+		return
+	}
+	setSessionCookie(w, r, sessionToken, 86400)
+	LogActivity(r, ActivityLogEntry{
+		ActorType: actorTypeUser,
+		ActorID:   getUserIDByUsername(usr.Username),
+		Username:  usr.Username,
+		Action:    "AUTH_TOKEN_LOGIN_SUCCESS",
+		Severity:  severityInfo,
+		Message:   "Token login succeeded.",
+	})
+	if usr.Username == "admin" {
+		http.Redirect(w, r, "/admin?view=overview", http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, "/dashboard?welcome=true", http.StatusFound)
 }
 
 func registerRedirectURL(errCode, refCode string) string {
@@ -1217,6 +1296,8 @@ func flashMessageFromQuery(r *http.Request) (string, string) {
 			return "Security token expired. Please retry the form.", "error"
 		case "invalid_code":
 			return "Invalid access token. Please check and try again.", "error"
+		case "invalid_token":
+			return "Invalid API token. Please check and try again.", "error"
 		case "taken":
 			return "That username is already taken.", "error"
 		case "bad_ref":
@@ -1344,9 +1425,27 @@ func handlePage(pName string) http.HandlerFunc {
 
 func handleStatusPage(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w)
+	username, ok := validateSession(r)
+	if !ok {
+		http.Redirect(w, r, "/login", 302)
+		return
+	}
+	var u User
+	err := db.QueryRow("SELECT username, plan, balance, api_token FROM users WHERE username=?", username).
+		Scan(&u.Username, &u.Plan, &u.Balance, &u.ApiToken)
+	if err != nil {
+		http.Redirect(w, r, "/logout", 302)
+		return
+	}
 	uptime := formatUptime(time.Since(startTime))
-	renderTemplate(w, "status.html", PublicStatus{
-		Uptime: uptime,
+	renderTemplate(w, "status.html", PageData{
+		Username:         u.Username,
+		UserPlan:         effectivePlanName(u.Plan),
+		UserBalance:      u.Balance,
+		CurrentPage:      "status",
+		UsernameInitials: usernameInitials(u.Username),
+		ApiToken:         u.ApiToken,
+		Uptime:           uptime,
 	})
 }
 

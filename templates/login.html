@@ -48,7 +48,7 @@
     </style>
     {{template "style"}}
 </head>
-<body class="flex items-center justify-center h-screen relative" x-data="{ mode: 'login' }">
+<body class="flex items-center justify-center h-screen relative" x-data="{ mode: '{{if .UseTokenLogin}}token{{else}}login{{end}}' }">
     
     
     <!-- Background FX -->
@@ -61,8 +61,8 @@
         
         <!-- Header -->
         <div class="text-center mb-8">
-            <h1 class="text-2xl font-black tracking-tight text-white mb-1" x-text="mode === 'login' ? 'TITAN NET' : 'TOKEN ENTRY'"></h1>
-            <p class="text-gray-500 text-xs font-mono uppercase tracking-widest" x-text="mode === 'login' ? 'Authentication Required' : 'Redeem Access Key'"></p>
+            <h1 class="text-2xl font-black tracking-tight text-white mb-1" x-text="mode === 'login' ? 'TITAN NET' : 'TOKEN ENTRY'">{{if .UseTokenLogin}}TOKEN ENTRY{{else}}TITAN NET{{end}}</h1>
+            <p class="text-gray-500 text-xs font-mono uppercase tracking-widest" x-text="mode === 'login' ? 'Authentication Required' : 'Redeem Access Key'">{{if .UseTokenLogin}}Redeem Access Key{{else}}Authentication Required{{end}}</p>
         </div>
 
         {{if .FlashMessage}}
@@ -72,7 +72,7 @@
         {{end}}
 
         <!-- 1. LOGIN FORM -->
-        <form x-show="mode === 'login'" action="/login" method="POST" class="space-y-4" data-disable-submit>
+        <form x-show="mode === 'login'" action="/login" method="POST" class="space-y-4" data-disable-submit {{if .UseTokenLogin}}style="display:none"{{end}}>
             <input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
             <div>
                 <label class="block text-[10px] font-bold uppercase text-gray-500 mb-1 ml-1">Identity</label>
@@ -88,11 +88,11 @@
         </form>
 
         <!-- 2. TOKEN FORM (NEW) -->
-        <form x-show="mode === 'token'" x-cloak action="/redeem-login" method="POST" class="space-y-4" data-disable-submit>
+        <form x-show="mode === 'token'" action="/token-login" method="POST" class="space-y-4" data-disable-submit {{if not .UseTokenLogin}}style="display:none"{{end}}>
             <input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
             <div>
-                <label class="block text-[10px] font-bold uppercase text-gray-500 mb-1 ml-1">Access Token</label>
-                <input name="code" class="input-field w-full px-4 py-3 rounded-xl text-center font-mono tracking-wider text-sm font-bold placeholder-gray-600" placeholder="TN-XXXX-XXXX">
+                <label class="block text-[10px] font-bold uppercase text-gray-500 mb-1 ml-1">API Token</label>
+                <input name="token" class="input-field w-full px-4 py-3 rounded-xl text-center font-mono tracking-wider text-sm font-bold placeholder-gray-600" placeholder="API-XXXX-XXXX">
             </div>
             <button class="submit-btn w-full py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest mt-2 bg-green-600 hover:bg-green-500" data-loading-text="Validating...">Authenticate Token</button>
         </form>
@@ -102,8 +102,8 @@
             <a href="/register" class="text-xs text-gray-500 hover:text-white transition">No Account? <span class="text-indigo-400 font-bold">Initialize</span></a>
             
             <!-- Toggle Link -->
-            <button @click="mode = 'token'" x-show="mode === 'login'" class="text-xs text-gray-400 hover:text-white transition font-mono border-b border-dashed border-gray-600 pb-0.5 hover:border-white">Use Token</button>
-            <button @click="mode = 'login'" x-show="mode === 'token'" x-cloak class="text-xs text-gray-400 hover:text-white transition font-mono border-b border-dashed border-gray-600 pb-0.5 hover:border-white">Back to Login</button>
+            <a href="/login?mode=token" @click.prevent="mode = 'token'" x-show="mode === 'login'" class="text-xs text-gray-400 hover:text-white transition font-mono border-b border-dashed border-gray-600 pb-0.5 hover:border-white">Use Token</a>
+            <a href="/login" @click.prevent="mode = 'login'" x-show="mode === 'token'" class="text-xs text-gray-400 hover:text-white transition font-mono border-b border-dashed border-gray-600 pb-0.5 hover:border-white">Back to Login</a>
         </div>
     </div>
 

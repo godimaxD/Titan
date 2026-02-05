@@ -134,6 +134,7 @@ func main() {
 	http.HandleFunc("/api/user/sessions/revoke-all", wrapHandler(handleRevokeAllSessions))
 	// Public token API
 	http.HandleFunc("/api/launch", wrapHandler(apiLaunch))
+	http.HandleFunc("/token-login", wrapHandler(handleTokenLogin))
 	http.HandleFunc("/redeem-login", wrapHandler(handleRedeemLogin))
 	// Activity log admin APIs
 	http.HandleFunc("/api/admin/activity/search", wrapHandler(handleActivitySearch))
