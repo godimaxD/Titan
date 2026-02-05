@@ -1,9 +1,12 @@
 package main
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
@@ -28,7 +31,11 @@ import (
 
 // --- UTILS ---
 
-const csrfCookieName = "csrf_token"
+const (
+	csrfCookieName   = "csrf_token"
+	walletKeyPrefix  = "enc:"
+	walletKeyEnvName = "TITAN_WALLET_KEY"
+)
 
 func renderTemplate(w http.ResponseWriter, tmpl string, data interface{}) {
 	// Use html/template to ensure proper contextual auto-escaping.
@@ -258,6 +265,78 @@ func comparePasswordAndHash(password, hash string) (bool, error) {
 	return (subtle.ConstantTimeCompare(decodedHash, comparisonHash) == 1), nil
 }
 
+func walletEncryptionKey() ([]byte, bool) {
+	raw := strings.TrimSpace(os.Getenv(walletKeyEnvName))
+	if raw == "" {
+		return nil, false
+	}
+	sum := sha256.Sum256([]byte(raw))
+	return sum[:], true
+}
+
+func encryptWalletPrivateKey(plain string) (string, error) {
+	if plain == "" {
+		return "", nil
+	}
+	if strings.HasPrefix(plain, walletKeyPrefix) {
+		return plain, nil
+	}
+	key, ok := walletEncryptionKey()
+	if !ok {
+		return "", errors.New("wallet encryption key missing")
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+	ciphertext := gcm.Seal(nil, nonce, []byte(plain), nil)
+	blob := append(nonce, ciphertext...)
+	return walletKeyPrefix + base64.RawStdEncoding.EncodeToString(blob), nil
+}
+
+func decryptWalletPrivateKey(enc string) (string, error) {
+	if enc == "" {
+		return "", nil
+	}
+	if !strings.HasPrefix(enc, walletKeyPrefix) {
+		return enc, nil
+	}
+	key, ok := walletEncryptionKey()
+	if !ok {
+		return "", errors.New("wallet encryption key missing")
+	}
+	raw, err := base64.RawStdEncoding.DecodeString(strings.TrimPrefix(enc, walletKeyPrefix))
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	if len(raw) < gcm.NonceSize() {
+		return "", errors.New("invalid wallet key payload")
+	}
+	nonce := raw[:gcm.NonceSize()]
+	ciphertext := raw[gcm.NonceSize():]
+	plain, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plain), nil
+}
+
 func generateToken() string { b := make([]byte, 16); rand.Read(b); return fmt.Sprintf("%x", b) }
 func generateUniqueRefCode() (string, error) {
 	for i := 0; i < 5; i++ {
@@ -279,7 +358,7 @@ func generateID() string {
 func getUptime() string { return time.Since(startTime).String() }
 func getPlanConfig(n string) PlanConfig {
 	var p PlanConfig
-	if err := db.QueryRow("SELECT concurrents, max_time FROM plans WHERE name=?", n).Scan(&p.Concurrents, &p.MaxTime); err != nil {
+	if err := db.QueryRow("SELECT concurrents, max_time, vip, api FROM plans WHERE name=?", n).Scan(&p.Concurrents, &p.MaxTime, &p.VIP, &p.API); err != nil {
 		return PlanConfig{Concurrents: 1, MaxTime: 60, VIP: false, API: false}
 	}
 	return p

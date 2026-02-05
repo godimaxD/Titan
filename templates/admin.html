@@ -347,7 +347,7 @@
         <div class="card p-0">
             <div class="p-6 border-b border-gray-100 dark:border-white/5 flex justify-between items-center">
                 <h3 class="font-bold text-sm uppercase text-gray-500">Live Network Activity</h3>
-                <button onclick="fetch('/api/attack/stopAll', {method:'POST', headers:{'X-CSRF-Token':'{{.CsrfToken}}'}});location.reload()" class="bg-red-500/10 text-red-500 border border-red-500/20 px-3 py-1 rounded text-xs font-bold hover:bg-red-500 hover:text-white transition">EMERGENCY STOP</button>
+                <button onclick="fetch('/api/attack/stopAll', {method:'POST', headers:{'X-CSRF-Token':'{{.CsrfToken}}'}});location.reload()" class="bg-red-500/10 text-red-500 border border-red-500/20 px-3 py-1 rounded text-xs font-bold hover:bg-red-500 hover:text-white transition">EMERGENCY STOP (GLOBAL)</button>
             </div>
             <table class="w-full">
                 <thead class="bg-gray-50 dark:bg-white/5"><tr><th class="pl-6">Target</th><th>Method</th><th>Initiator</th><th>Duration</th><th>Control</th></tr></thead>

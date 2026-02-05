@@ -54,6 +54,55 @@ func TestInitialAdminPasswordFromEnv(t *testing.T) {
 	}
 }
 
+func TestEncryptWalletPrivateKeyRoundTrip(t *testing.T) {
+	t.Setenv(walletKeyEnvName, "wallet-secret")
+
+	enc, err := encryptWalletPrivateKey("plain-key")
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	if !strings.HasPrefix(enc, walletKeyPrefix) {
+		t.Fatalf("expected encrypted key prefix, got %q", enc)
+	}
+	dec, err := decryptWalletPrivateKey(enc)
+	if err != nil {
+		t.Fatalf("decrypt: %v", err)
+	}
+	if dec != "plain-key" {
+		t.Fatalf("expected round-trip key, got %q", dec)
+	}
+}
+
+func TestMigrateWalletPrivateKeys(t *testing.T) {
+	t.Setenv(walletKeyEnvName, "wallet-secret")
+	setupTestDB(t)
+
+	if _, err := db.Exec("INSERT INTO wallets (address, private_key, status, assigned_to) VALUES ('T123', 'plain-key', 'Free', '')"); err != nil {
+		t.Fatalf("insert wallet: %v", err)
+	}
+
+	migrateWalletPrivateKeys()
+
+	if _, ok := walletEncryptionKey(); !ok {
+		t.Fatalf("expected wallet encryption key to be set")
+	}
+
+	var stored string
+	if err := db.QueryRow("SELECT private_key FROM wallets WHERE address='T123'").Scan(&stored); err != nil {
+		t.Fatalf("query wallet: %v", err)
+	}
+	if !strings.HasPrefix(stored, walletKeyPrefix) {
+		t.Fatalf("expected encrypted wallet key, got %q", stored)
+	}
+	dec, err := decryptWalletPrivateKey(stored)
+	if err != nil {
+		t.Fatalf("decrypt migrated key: %v", err)
+	}
+	if dec != "plain-key" {
+		t.Fatalf("expected migrated key to decrypt to original, got %q", dec)
+	}
+}
+
 func TestIsSecureRequest(t *testing.T) {
 	origTrustProxy := cfg.TrustProxy
 	origForceSecure := cfg.ForceSecureCookies

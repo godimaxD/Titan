@@ -4,11 +4,14 @@ import (
 	"database/sql"
 	"log"
 	"os"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
 var db *sql.DB
+
+const defaultAdminAPIToken = "titan_root"
 
 func initDB() {
 	var err error
@@ -121,7 +124,8 @@ func initDB() {
 		if err != nil {
 			log.Fatal("Failed to hash admin password:", err)
 		}
-		_, err = db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", "admin", hashedPass, "God", "Active", "titan_root", "user#0001", 999.0, "ADMIN", "", 0.0, 0)
+		apiToken, apiFromEnv := initialAdminAPIToken()
+		_, err = db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", "admin", hashedPass, "God", "Active", apiToken, "user#0001", 999.0, "ADMIN", "", 0.0, 0)
 		if err != nil {
 			log.Fatal("Failed to insert admin user:", err)
 		}
@@ -130,7 +134,12 @@ func initDB() {
 		} else {
 			log.Printf("Generated admin password: %s", pass)
 		}
+		if apiFromEnv {
+			log.Printf("Admin API token initialized from TITAN_ADMIN_API_TOKEN.")
+		}
 	}
+	rotateDefaultAdminAPIToken()
+	migrateWalletPrivateKeys()
 }
 
 func initialAdminPassword() (string, bool) {
@@ -138,4 +147,75 @@ func initialAdminPassword() (string, bool) {
 		return pass, true
 	}
 	return generateToken() + generateToken(), false
+}
+
+func initialAdminAPIToken() (string, bool) {
+	if tok, ok := adminAPITokenFromEnv(); ok {
+		return tok, true
+	}
+	return generateToken() + generateToken(), false
+}
+
+func adminAPITokenFromEnv() (string, bool) {
+	tok := strings.TrimSpace(os.Getenv("TITAN_ADMIN_API_TOKEN"))
+	if tok == "" || tok == defaultAdminAPIToken {
+		return "", false
+	}
+	return tok, true
+}
+
+func rotateDefaultAdminAPIToken() {
+	var apiToken string
+	if err := db.QueryRow("SELECT api_token FROM users WHERE username='admin'").Scan(&apiToken); err != nil {
+		return
+	}
+	if apiToken != defaultAdminAPIToken {
+		return
+	}
+	newToken, fromEnv := initialAdminAPIToken()
+	if newToken == "" || newToken == defaultAdminAPIToken {
+		newToken = generateToken() + generateToken()
+	}
+	if _, err := db.Exec("UPDATE users SET api_token=? WHERE username='admin'", newToken); err != nil {
+		return
+	}
+	if fromEnv {
+		log.Printf("Admin API token rotated from TITAN_ADMIN_API_TOKEN.")
+	} else {
+		log.Printf("Admin API token rotated.")
+	}
+}
+
+func migrateWalletPrivateKeys() {
+	if _, ok := walletEncryptionKey(); !ok {
+		return
+	}
+	rows, err := db.Query("SELECT address, private_key FROM wallets WHERE private_key IS NOT NULL AND private_key != ''")
+	if err != nil {
+		return
+	}
+	type walletRow struct {
+		address string
+		key     string
+	}
+	var pending []walletRow
+	for rows.Next() {
+		var address string
+		var key string
+		if err := rows.Scan(&address, &key); err != nil {
+			continue
+		}
+		if strings.HasPrefix(key, walletKeyPrefix) {
+			continue
+		}
+		pending = append(pending, walletRow{address: address, key: key})
+	}
+	rows.Close()
+	for _, row := range pending {
+		enc, err := encryptWalletPrivateKey(row.key)
+		if err != nil {
+			continue
+		}
+		_, _ = db.Exec("UPDATE wallets SET private_key=? WHERE address=?", enc, row.address)
+	}
 }

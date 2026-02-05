@@ -194,12 +194,12 @@
 
                 <div class="glass-panel p-8 rounded-2xl border border-white/5">
                     <div class="flex items-center justify-between gap-4 mb-2">
-                        <div class="flex items-center gap-3"><span class="bg-indigo-600 text-[10px] font-bold px-2 py-1 rounded text-white">GET</span><h2 class="text-xl font-bold text-white">/api/launch</h2></div>
+                        <div class="flex items-center gap-3"><span class="bg-emerald-600 text-[10px] font-bold px-2 py-1 rounded text-white">POST</span><h2 class="text-xl font-bold text-white">/api/launch</h2></div>
                         <span class="text-[10px] font-bold text-gray-500 uppercase">Public Token API</span>
                     </div>
                     <p class="text-sm text-gray-400 mb-4">Launch an attack via API token (simplified endpoint).</p>
-                    <div class="bg-black/50 p-4 rounded-xl font-mono text-xs text-indigo-300 border border-white/10 break-all">curl -H "Authorization: Bearer &lt;TOKEN&gt;" "https://YOUR_HOST/api/launch?target=1.1.1.1"</div>
-                    <div class="text-xs text-gray-500 mt-3">Parameters: <span class="font-mono">target</span> (required). Others are currently defaulted server-side.</div>
+                    <div class="bg-black/50 p-4 rounded-xl font-mono text-xs text-indigo-300 border border-white/10 break-all">curl -X POST -H "Authorization: Bearer &lt;TOKEN&gt;" -d "target=1.1.1.1" "https://YOUR_HOST/api/launch"</div>
+                    <div class="text-xs text-gray-500 mt-3">Parameters: <span class="font-mono">target</span> (required). Authorization must be in the header.</div>
                 </div>
 
                 <!-- Session / Panel APIs -->
@@ -223,7 +223,7 @@
 
                 <div class="glass-panel p-8 rounded-2xl border border-white/5">
                     <div class="flex items-center gap-3 mb-2"><span class="bg-emerald-600 text-[10px] font-bold px-2 py-1 rounded text-white">POST</span><h2 class="text-xl font-bold text-white">/api/attack/stopAll</h2></div>
-                    <p class="text-sm text-gray-400 mb-4">Stop all your attacks (session required).</p>
+                    <p class="text-sm text-gray-400 mb-4">Stop all your sessions (session required). Admins trigger a global stop.</p>
                     <div class="bg-black/50 p-4 rounded-xl font-mono text-xs text-indigo-300 border border-white/10 break-all">fetch('/api/attack/stopAll',{method:'POST',headers:{'X-CSRF-Token':'&lt;CSRF&gt;'}}).then(r=&gt;r.json())</div>
                 </div>
 
