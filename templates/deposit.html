@@ -170,14 +170,20 @@
 
         <!-- SCROLLABLE CONTENT -->
         <div class="p-6 md:p-10 overflow-y-auto h-full pb-32 md:pb-10 no-scrollbar w-full">
+            {{if .FlashMessage}}
+            <div class="glass-panel rounded-2xl p-4 mb-6 border {{if eq .FlashType "success"}}border-green-500/30 bg-green-500/10 text-green-200{{else if eq .FlashType "info"}}border-blue-500/30 bg-blue-500/10 text-blue-200{{else}}border-red-500/30 bg-red-500/10 text-red-200{{end}} text-sm font-semibold max-w-6xl mx-auto">
+                {{.FlashMessage}}
+            </div>
+            {{end}}
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-6xl mx-auto">
                 
                 <!-- DEPOSIT FORM -->
                 <div x-data="{ price: 0.15 }" class="glass-panel p-8 rounded-3xl relative overflow-hidden flex flex-col justify-center">
                     <div x-init="fetch('https://api.binance.com/api/v3/ticker/price?symbol=TRXUSDT').then(r=>r.json()).then(d=>price=d.price)"></div>
                     <h2 class="text-2xl font-bold text-black dark:text-white mb-6">Deposit Funds</h2>
-                    <form action="/api/deposit/create" method="POST" class="space-y-6">
+                    <form action="/api/deposit/create" method="POST" class="space-y-6" data-disable-submit id="deposit-form">
                         <input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
+                        <input type="hidden" name="request_id" value="{{.RequestID}}">
                         <div>
                             <label class="text-xs font-bold text-gray-500 ml-1 mb-2 block uppercase">Amount (USD)</label>
                             <input type="number" name="amount" step="any" required 
@@ -185,8 +191,9 @@
                                    placeholder="20.00" 
                                    x-on:input="$el.value > 0 ? $refs.calc.innerText = '≈ ' + ($el.value/price).toFixed(2) + ' TRX' : $refs.calc.innerText = ''">
                             <div class="text-xs text-indigo-500 font-mono mt-2 text-right font-bold" x-ref="calc"></div>
+                            <p class="text-[10px] text-gray-500 mt-2">Minimum deposit is $1. Payments must be made before the invoice expires.</p>
                         </div>
-                        <button class="w-full glass-btn py-3 rounded-xl transition tracking-wider uppercase text-sm shadow-lg">
+                        <button class="w-full glass-btn py-3 rounded-xl transition tracking-wider uppercase text-sm shadow-lg" data-loading-text="Creating invoice...">
                             PAY
                         </button>
                     </form>
@@ -200,6 +207,7 @@
                     <div class="overflow-y-auto pr-2 flex-1">
                         <table class="w-full text-left border-collapse">
                             <tbody>
+                                {{if .Deposits}}
                                 {{range .Deposits}}
                                 <tr class="border-b border-black/5 dark:border-white/5 last:border-0 hover:bg-black/5 dark:hover:bg-white/5 transition">
                                     <td class="py-4">
@@ -225,6 +233,16 @@
                                     <td class="py-4 text-right text-xs text-gray-500 font-mono">{{.Date}}</td>
                                 </tr>
                                 {{end}}
+                                {{else}}
+                                <tr>
+                                    <td class="py-6 text-sm text-gray-500">
+                                        <div class="flex flex-col gap-2">
+                                            <span>No deposits yet.</span>
+                                            <a href="#deposit-form" class="text-indigo-600 dark:text-indigo-400 text-xs font-bold uppercase tracking-widest">Start your first deposit</a>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {{end}}
                             </tbody>
                         </table>
                     </div>
@@ -233,5 +251,18 @@
             </div>
         </div>
     </main>
+    <script>
+        document.querySelectorAll('form[data-disable-submit]').forEach((form) => {
+            form.addEventListener('submit', () => {
+                const btn = form.querySelector('button[type="submit"], button:not([type])');
+                if (!btn) return;
+                const loadingText = btn.getAttribute('data-loading-text') || 'Processing...';
+                btn.setAttribute('data-original-text', btn.textContent);
+                btn.textContent = loadingText;
+                btn.disabled = true;
+                btn.classList.add('opacity-70', 'cursor-not-allowed');
+            });
+        });
+    </script>
 </body>
 </html>

@@ -94,6 +94,7 @@ type PageData struct {
 	RefCount                                                                   int
 	FlashMessage                                                               string
 	FlashType                                                                  string
+	RequestID                                                                  string
 	FormError                                                                  string
 	FieldErrors                                                                map[string]string
 	FormValues                                                                 map[string]string
@@ -114,6 +115,8 @@ type PaymentPageData struct {
 	ExpiresAt        string
 	Status           string
 	Currency         string
+	FlashMessage     string
+	FlashType        string
 }
 
 type ReceiptData struct {

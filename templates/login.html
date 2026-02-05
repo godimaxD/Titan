@@ -62,28 +62,36 @@
             <p class="text-gray-500 text-xs font-mono uppercase tracking-widest" x-text="mode === 'login' ? 'Authentication Required' : 'Redeem Access Key'"></p>
         </div>
 
+        {{if .FlashMessage}}
+        <div class="mb-4 rounded-xl border px-4 py-3 text-xs font-bold {{if eq .FlashType "success"}}bg-green-500/10 border-green-500/40 text-green-300{{else if eq .FlashType "info"}}bg-blue-500/10 border-blue-500/40 text-blue-300{{else}}bg-red-500/10 border-red-500/40 text-red-300{{end}}">
+            {{.FlashMessage}}
+        </div>
+        {{end}}
+
         <!-- 1. LOGIN FORM -->
-        <form x-show="mode === 'login'" action="/login" method="POST" class="space-y-4">
-<input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
+        <form x-show="mode === 'login'" action="/login" method="POST" class="space-y-4" data-disable-submit>
+            <input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
             <div>
                 <label class="block text-[10px] font-bold uppercase text-gray-500 mb-1 ml-1">Identity</label>
                 <input name="username" class="input-field w-full px-4 py-3 rounded-xl text-sm font-bold placeholder-gray-600" placeholder="Username">
+                <p class="text-[10px] text-gray-500 mt-1">Use the username you registered with.</p>
             </div>
             <div>
                 <label class="block text-[10px] font-bold uppercase text-gray-500 mb-1 ml-1">Keyphrase</label>
                 <input type="password" name="password" class="input-field w-full px-4 py-3 rounded-xl text-sm font-bold placeholder-gray-600" placeholder="••••••••">
+                <p class="text-[10px] text-gray-500 mt-1">Passwords are case-sensitive.</p>
             </div>
-            <button class="submit-btn w-full py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest mt-2">Enter System</button>
+            <button class="submit-btn w-full py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest mt-2" data-loading-text="Signing in...">Enter System</button>
         </form>
 
         <!-- 2. TOKEN FORM (NEW) -->
-        <form x-show="mode === 'token'" x-cloak action="/redeem-login" method="POST" class="space-y-4">
-<input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
+        <form x-show="mode === 'token'" x-cloak action="/redeem-login" method="POST" class="space-y-4" data-disable-submit>
+            <input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
             <div>
                 <label class="block text-[10px] font-bold uppercase text-gray-500 mb-1 ml-1">Access Token</label>
                 <input name="code" class="input-field w-full px-4 py-3 rounded-xl text-center font-mono tracking-wider text-sm font-bold placeholder-gray-600" placeholder="TN-XXXX-XXXX">
             </div>
-            <button class="submit-btn w-full py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest mt-2 bg-green-600 hover:bg-green-500">Authenticate Token</button>
+            <button class="submit-btn w-full py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest mt-2 bg-green-600 hover:bg-green-500" data-loading-text="Validating...">Authenticate Token</button>
         </form>
 
         <!-- Footer Toggles -->
@@ -96,20 +104,18 @@
         </div>
     </div>
 
-    <!-- Error Toast -->
     <script>
-        const params = new URLSearchParams(window.location.search);
-        if(params.get('err')) {
-            const errType = params.get('err');
-            let msg = 'ACCESS DENIED: Invalid Credentials';
-            if(errType === 'invalid_code') msg = 'INVALID TOKEN CODE';
-            
-            const d = document.createElement('div');
-            d.className = 'fixed top-6 bg-red-500/10 border border-red-500/50 text-red-400 px-6 py-3 rounded-xl text-xs font-bold shadow-xl backdrop-blur-md animate-bounce';
-            d.innerText = msg;
-            document.body.appendChild(d);
-            setTimeout(()=>d.remove(), 4000);
-        }
+        document.querySelectorAll('form[data-disable-submit]').forEach((form) => {
+            form.addEventListener('submit', () => {
+                const btn = form.querySelector('button[type="submit"], button:not([type])');
+                if (!btn) return;
+                const loadingText = btn.getAttribute('data-loading-text') || 'Processing...';
+                btn.setAttribute('data-original-text', btn.textContent);
+                btn.textContent = loadingText;
+                btn.disabled = true;
+                btn.classList.add('opacity-70', 'cursor-not-allowed');
+            });
+        });
     </script>
 </body>
 </html>

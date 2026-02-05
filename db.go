@@ -31,6 +31,7 @@ func initDB() {
 		`CREATE TABLE IF NOT EXISTS wallets (address TEXT PRIMARY KEY, private_key TEXT, status TEXT, assigned_to TEXT);`,
 		`CREATE TABLE IF NOT EXISTS blacklist (target TEXT PRIMARY KEY, reason TEXT, date TEXT);`,
 		`CREATE TABLE IF NOT EXISTS methods (name TEXT PRIMARY KEY, layer TEXT, command TEXT, enabled BOOLEAN DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`,
+		`CREATE TABLE IF NOT EXISTS idempotency_keys (key TEXT PRIMARY KEY, user_id TEXT, action TEXT, reference_id TEXT, created_at INTEGER);`,
 	}
 	for _, t := range tables {
 		if _, err := db.Exec(t); err != nil {
@@ -54,6 +55,11 @@ func initDB() {
 	db.Exec("ALTER TABLE sessions ADD COLUMN user_agent TEXT;")
 	db.Exec("ALTER TABLE sessions ADD COLUMN ip TEXT;")
 	db.Exec("UPDATE deposits SET usd_amount = amount * 0.20 WHERE (usd_amount IS NULL OR usd_amount = 0) AND amount > 0")
+
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_deposits_user_id ON deposits(user_id);")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_sessions_username ON sessions(username);")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_tickets_user_id ON tickets(user_id);")
 
 	// Seed default methods if table is empty
 	var mCount int

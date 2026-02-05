@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -30,17 +29,18 @@ type SessionInfo struct {
 
 var captchaVerify = captcha.VerifyString
 
+const maxBodySize = 64 << 10 // 64KB
+
 // --- HANDLERS ---
 
 func handleLogin(w http.ResponseWriter, r *http.Request) {
-	if isRateLimited(getIP(r)) {
-		http.Error(w, "Rate Limit", 429)
-		return
-	}
-
 	if r.Method == "POST" {
+		if isRateLimited(getIP(r)) {
+			http.Redirect(w, r, "/login?err=rate_limit", http.StatusFound)
+			return
+		}
 		if !validateCSRF(r) {
-			http.Error(w, "CSRF Validation Failed", 403)
+			http.Redirect(w, r, "/login?err=csrf", http.StatusFound)
 			return
 		}
 
@@ -53,24 +53,25 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 			db.Exec("DELETE FROM sessions WHERE username=?", u)
 			token := createSession(u, r)
 			if token == "" {
-				http.Redirect(w, r, "/login?err=session", 302)
+				http.Redirect(w, r, "/login?err=session", http.StatusFound)
 				return
 			}
 			setSessionCookie(w, r, token, 86400)
 			if u == "admin" {
-				http.Redirect(w, r, "/admin?view=overview", 302)
+				http.Redirect(w, r, "/admin?view=overview", http.StatusFound)
 			} else {
-				http.Redirect(w, r, "/dashboard?welcome=true", 302)
+				http.Redirect(w, r, "/dashboard?welcome=true", http.StatusFound)
 			}
 		} else {
-			http.Redirect(w, r, "/login?err=1", 302)
+			http.Redirect(w, r, "/login?err=invalid", http.StatusFound)
 		}
 		return
 	}
 
 	setSecurityHeaders(w)
 	token := ensureCSRFCookie(w, r)
-	renderTemplate(w, "login.html", PageData{CsrfToken: token})
+	msg, msgType := flashMessageFromQuery(r)
+	renderTemplate(w, "login.html", PageData{CsrfToken: token, FlashMessage: msg, FlashType: msgType})
 }
 
 func handleUserInfo(w http.ResponseWriter, r *http.Request) {
@@ -90,7 +91,7 @@ func handleUserInfo(w http.ResponseWriter, r *http.Request) {
 
 	usr, ok := getUserByToken(tok)
 	if !ok {
-		http.Error(w, "Bad Token", http.StatusForbidden)
+		writeJSONError(w, http.StatusForbidden, "bad_token", "Invalid token.")
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -102,14 +103,13 @@ func handleUserInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleRegister(w http.ResponseWriter, r *http.Request) {
-	if isRateLimited(getIP(r)) {
-		http.Error(w, "Rate Limit", 429)
-		return
-	}
-
 	if r.Method == "POST" {
+		if isRateLimited(getIP(r)) {
+			http.Redirect(w, r, "/register?err=rate_limit", http.StatusFound)
+			return
+		}
 		if !validateCSRF(r) {
-			http.Error(w, "CSRF Validation Failed", 403)
+			http.Redirect(w, r, "/register?err=csrf", http.StatusFound)
 			return
 		}
 
@@ -119,7 +119,7 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 		captchaSolution := r.FormValue("captcha")
 
 		if !captchaVerify(captchaId, captchaSolution) {
-			http.Redirect(w, r, "/register?err=captcha_wrong", 302)
+			http.Redirect(w, r, "/register?err=captcha_wrong", http.StatusFound)
 			return
 		}
 
@@ -130,34 +130,34 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 			hashedPass, _ := generatePasswordHash(p)
 			myRefCode, err := generateUniqueRefCode()
 			if err != nil {
-				http.Redirect(w, r, "/register?err=db", 302)
+				http.Redirect(w, r, "/register?err=db", http.StatusFound)
 				return
 			}
 			var validRef string
 			if refCode != "" {
 				if err := db.QueryRow("SELECT username FROM users WHERE ref_code=?", refCode).Scan(&validRef); err != nil {
 					if err == sql.ErrNoRows {
-						http.Redirect(w, r, "/register?err=bad_ref", 302)
+						http.Redirect(w, r, "/register?err=bad_ref", http.StatusFound)
 						return
 					}
-					http.Redirect(w, r, "/register?err=db", 302)
+					http.Redirect(w, r, "/register?err=db", http.StatusFound)
 					return
 				}
 			}
 			if validRef == u {
-				http.Redirect(w, r, "/register?err=bad_ref", 302)
+				http.Redirect(w, r, "/register?err=bad_ref", http.StatusFound)
 				return
 			}
 			db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", u, hashedPass, "Free", "Active", generateToken(), "u#"+generateID(), 0.0, myRefCode, validRef, 0.0, 0)
 			token := createSession(u, r)
 			if token == "" {
-				http.Redirect(w, r, "/register?err=session", 302)
+				http.Redirect(w, r, "/register?err=session", http.StatusFound)
 				return
 			}
 			setSessionCookie(w, r, token, 86400)
-			http.Redirect(w, r, "/dashboard", 302)
+			http.Redirect(w, r, "/dashboard?welcome=true", http.StatusFound)
 		} else {
-			http.Redirect(w, r, "/register?err=taken", 302)
+			http.Redirect(w, r, "/register?err=taken", http.StatusFound)
 		}
 		return
 	}
@@ -165,7 +165,8 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w)
 	token := ensureCSRFCookie(w, r)
 	captchaId := captcha.New()
-	renderTemplate(w, "register.html", PageData{CaptchaId: captchaId, CsrfToken: token})
+	msg, msgType := flashMessageFromQuery(r)
+	renderTemplate(w, "register.html", PageData{CaptchaId: captchaId, CsrfToken: token, FlashMessage: msg, FlashType: msgType})
 }
 
 func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
@@ -178,15 +179,27 @@ func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if r.ContentLength > maxBodySize {
+		http.Error(w, "Request Entity Too Large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	if err := r.ParseForm(); err != nil {
+		if isRequestBodyTooLarge(err) {
+			http.Error(w, "Request Entity Too Large", http.StatusRequestEntityTooLarge)
+			return
+		}
+	}
 	if !validateCSRF(r) {
 		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
 		return
 	}
+	requestID := strings.TrimSpace(r.FormValue("request_id"))
 
 	rawAmt := r.FormValue("amount")
 	usdAmt, err := strconv.ParseFloat(rawAmt, 64)
 	if err != nil || usdAmt < 1 {
-		http.Redirect(w, r, "/deposit?err=min", 302)
+		http.Redirect(w, r, "/deposit?err=min", http.StatusFound)
 		return
 	}
 
@@ -201,25 +214,38 @@ func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := db.Begin()
 	if err != nil {
-		http.Redirect(w, r, "/deposit?err=db", 302)
+		http.Redirect(w, r, "/deposit?err=db", http.StatusFound)
 		return
 	}
 
+	depID := generateID()
+	if requestID != "" {
+		res, err := tx.Exec("INSERT OR IGNORE INTO idempotency_keys (key, user_id, action, reference_id, created_at) VALUES (?, ?, ?, ?, ?)", requestID, username, "deposit", depID, time.Now().Unix())
+		if err != nil {
+			tx.Rollback()
+			http.Redirect(w, r, "/deposit?err=db", http.StatusFound)
+			return
+		}
+		if rows, _ := res.RowsAffected(); rows == 0 {
+			var existing string
+			_ = tx.QueryRow("SELECT reference_id FROM idempotency_keys WHERE key=? AND user_id=? AND action=?", requestID, username, "deposit").Scan(&existing)
+			tx.Rollback()
+			if existing != "" {
+				http.Redirect(w, r, "/deposit/pay?id="+existing+"&msg=deposit_exists", http.StatusFound)
+				return
+			}
+			http.Redirect(w, r, "/deposit?err=duplicate", http.StatusFound)
+			return
+		}
+	}
 	var walletAddr string
 	err = tx.QueryRow("SELECT address FROM wallets WHERE status='Free' LIMIT 1").Scan(&walletAddr)
 
 	if err != nil {
-		b := make([]byte, 16)
-		rand.Read(b)
-		walletAddr = "T" + fmt.Sprintf("%x", b)
-		if _, err := tx.Exec("INSERT OR IGNORE INTO wallets(address, private_key, status, assigned_to) VALUES (?, 'EMERGENCY', 'Free', '')", walletAddr); err != nil {
-			tx.Rollback()
-			http.Redirect(w, r, "/deposit?err=db", 302)
-			return
-		}
+		tx.Rollback()
+		http.Redirect(w, r, "/deposit?err=wallets", http.StatusFound)
+		return
 	}
-
-	depID := generateID()
 	expires := time.Now().Add(15 * time.Minute).Unix()
 
 	_, err = tx.Exec("INSERT INTO deposits (id, user_id, amount, usd_amount, address, status, date, expires) VALUES (?, ?, ?, ?, ?, 'Pending', ?, ?)",
@@ -227,23 +253,23 @@ func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		tx.Rollback()
-		http.Redirect(w, r, "/deposit?err=db", 302)
+		http.Redirect(w, r, "/deposit?err=db", http.StatusFound)
 		return
 	}
 
 	if _, err := tx.Exec("UPDATE wallets SET status='Busy', assigned_to=? WHERE address=?", depID, walletAddr); err != nil {
 		tx.Rollback()
-		http.Redirect(w, r, "/deposit?err=db", 302)
+		http.Redirect(w, r, "/deposit?err=db", http.StatusFound)
 		return
 	}
 
 	if err := tx.Commit(); err != nil {
 		tx.Rollback()
-		http.Redirect(w, r, "/deposit?err=db", 302)
+		http.Redirect(w, r, "/deposit?err=db", http.StatusFound)
 		return
 	}
 
-	http.Redirect(w, r, "/deposit/pay?id="+depID, 302)
+	http.Redirect(w, r, "/deposit/pay?id="+depID+"&msg=deposit_created", http.StatusFound)
 }
 
 func handleInvoicePage(w http.ResponseWriter, r *http.Request) {
@@ -258,6 +284,10 @@ func handleDepositPayPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := Sanitize(r.URL.Query().Get("id"))
+	if id == "" {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	}
 	if id == "" {
 		http.Redirect(w, r, "/deposit", 302)
 		return
@@ -298,6 +328,7 @@ func handleDepositPayPage(w http.ResponseWriter, r *http.Request) {
 		Status:           normalizeDepositStatus(d.Status),
 		Currency:         "TRX",
 	}
+	data.FlashMessage, data.FlashType = flashMessageFromQuery(r)
 	renderTemplate(w, "deposit_pay.html", data)
 }
 
@@ -328,7 +359,7 @@ func handleCheckDeposit(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	username, ok := validateSession(r)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.")
 		return
 	}
 	id := Sanitize(r.URL.Query().Get("id"))
@@ -460,14 +491,26 @@ func handlePurchase(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if r.ContentLength > maxBodySize {
+		http.Error(w, "Request Entity Too Large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	if err := r.ParseForm(); err != nil {
+		if isRequestBodyTooLarge(err) {
+			http.Error(w, "Request Entity Too Large", http.StatusRequestEntityTooLarge)
+			return
+		}
+	}
 	if !validateCSRF(r) {
 		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
 		return
 	}
+	requestID := strings.TrimSpace(r.FormValue("request_id"))
 	id, _ := strconv.Atoi(r.URL.Query().Get("id"))
 	tx, err := db.Begin()
 	if err != nil {
-		http.Redirect(w, r, "/market?err=db", 302)
+		http.Redirect(w, r, "/market?err=db", http.StatusFound)
 		return
 	}
 	defer tx.Rollback()
@@ -475,57 +518,68 @@ func handlePurchase(w http.ResponseWriter, r *http.Request) {
 	var p Product
 	err = tx.QueryRow("SELECT name, price, time, concurrents, vip, api_access FROM products WHERE id=?", id).Scan(&p.Name, &p.Price, &p.Time, &p.Concurrents, &p.VIP, &p.APIAccess)
 	if err != nil {
-		http.Redirect(w, r, "/market?err=prod", 302)
+		http.Redirect(w, r, "/market?err=prod", http.StatusFound)
 		return
+	}
+	if requestID != "" {
+		res, err := tx.Exec("INSERT OR IGNORE INTO idempotency_keys (key, user_id, action, reference_id, created_at) VALUES (?, ?, ?, ?, ?)", requestID, username, "purchase", strconv.Itoa(id), time.Now().Unix())
+		if err != nil {
+			http.Redirect(w, r, "/market?err=db", http.StatusFound)
+			return
+		}
+		if rows, _ := res.RowsAffected(); rows == 0 {
+			http.Redirect(w, r, "/market?err=duplicate", http.StatusFound)
+			return
+		}
 	}
 	var balance float64
 	var referrer string
 	var refPaid int
 	err = tx.QueryRow("SELECT balance, referred_by, ref_paid FROM users WHERE username=?", username).Scan(&balance, &referrer, &refPaid)
 	if err != nil {
-		http.Redirect(w, r, "/market?err=user", 302)
+		http.Redirect(w, r, "/market?err=user", http.StatusFound)
 		return
 	}
 	if roundFloat(balance, 2) < roundFloat(p.Price, 2) {
-		http.Redirect(w, r, "/deposit?err=balance", 302)
+		http.Redirect(w, r, "/deposit?err=balance", http.StatusFound)
 		return
 	}
 
 	newBalance := roundFloat(balance-p.Price, 2)
 	if _, err := tx.Exec("UPDATE users SET balance=?, plan=? WHERE username=?", newBalance, p.Name, username); err != nil {
-		http.Redirect(w, r, "/market?err=db", 302)
+		http.Redirect(w, r, "/market?err=db", http.StatusFound)
 		return
 	}
 
 	if referrer != "" && referrer != username && refPaid == 0 {
 		kickback := roundFloat(p.Price*cfg.ReferralPercent, 2)
 		if _, err := tx.Exec("UPDATE users SET balance=balance+?, ref_earnings=ref_earnings+? WHERE username=?", kickback, kickback, referrer); err != nil {
-			http.Redirect(w, r, "/market?err=db", 302)
+			http.Redirect(w, r, "/market?err=db", http.StatusFound)
 			return
 		}
 		if _, err := tx.Exec("UPDATE users SET ref_paid=1 WHERE username=?", username); err != nil {
-			http.Redirect(w, r, "/market?err=db", 302)
+			http.Redirect(w, r, "/market?err=db", http.StatusFound)
 			return
 		}
 	}
 
 	var count int
 	if err := tx.QueryRow("SELECT count(*) FROM plans WHERE name = ?", p.Name).Scan(&count); err != nil {
-		http.Redirect(w, r, "/market?err=db", 302)
+		http.Redirect(w, r, "/market?err=db", http.StatusFound)
 		return
 	}
 	if count == 0 {
 		if _, err := tx.Exec("INSERT INTO plans (name, concurrents, max_time, vip, api) VALUES (?, ?, ?, ?, ?)", p.Name, p.Concurrents, p.Time, p.VIP, p.APIAccess); err != nil {
-			http.Redirect(w, r, "/market?err=db", 302)
+			http.Redirect(w, r, "/market?err=db", http.StatusFound)
 			return
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		http.Redirect(w, r, "/market?err=db", 302)
+		http.Redirect(w, r, "/market?err=db", http.StatusFound)
 		return
 	}
-	http.Redirect(w, r, "/dashboard?msg=success", 302)
+	http.Redirect(w, r, "/dashboard?msg=plan_activated", http.StatusFound)
 }
 
 func handleAdminPage(w http.ResponseWriter, r *http.Request) {
@@ -679,26 +733,31 @@ func handlePanelAttack(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 
 	if isRateLimited(getIP(r)) {
-		http.Error(w, "Rate Limit", http.StatusTooManyRequests)
+		writeJSONError(w, http.StatusTooManyRequests, "rate_limited", "Too many requests.")
 		return
 	}
 	username, ok := validateSession(r)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.")
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed.")
 		return
 	}
 	if !validateCSRF(r) {
-		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		writeJSONError(w, http.StatusForbidden, "csrf", "CSRF validation failed.")
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	var d ApiReq
 	if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
-		http.Error(w, "Bad Request", http.StatusBadRequest)
+		if isRequestBodyTooLarge(err) {
+			writeJSONError(w, http.StatusRequestEntityTooLarge, "payload_too_large", "Request body too large.")
+			return
+		}
+		writeJSONError(w, http.StatusBadRequest, "bad_request", "Invalid request payload.")
 		return
 	}
 
@@ -713,35 +772,35 @@ func handlePanelAttack(w http.ResponseWriter, r *http.Request) {
 	limits := getPlanConfig(u.Plan)
 	reqTime, err := strconv.Atoi(d.Time)
 	if err != nil || reqTime <= 0 {
-		http.Error(w, "Invalid Time", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid_time", "Invalid duration.")
 		return
 	}
 	reqConc, err := strconv.Atoi(d.Concurrency)
 	if err != nil || reqConc <= 0 {
-		http.Error(w, "Invalid Concurrency", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid_concurrency", "Invalid concurrency.")
 		return
 	}
 	if reqTime > limits.MaxTime {
-		http.Error(w, "Time Limit", http.StatusForbidden)
+		writeJSONError(w, http.StatusForbidden, "time_limit", "Duration exceeds plan limit.")
 		return
 	}
 	if reqConc > limits.Concurrents {
-		http.Error(w, "Concurrency Limit", http.StatusForbidden)
+		writeJSONError(w, http.StatusForbidden, "concurrency_limit", "Concurrency exceeds plan limit.")
 		return
 	}
 	if d.Target == "" {
-		http.Error(w, "Target Required", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "target_required", "Target is required.")
 		return
 	}
 	if isBlacklisted(d.Target) {
-		http.Error(w, "Target Blacklisted", http.StatusForbidden)
+		writeJSONError(w, http.StatusForbidden, "target_blacklisted", "Target is blacklisted.")
 		return
 	}
 
 	// Validate method against admin-managed methods.
 	var cmd string
 	if err := db.QueryRow("SELECT command FROM methods WHERE name=? AND enabled=1", d.Method).Scan(&cmd); err != nil {
-		http.Error(w, "Invalid Method", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid_method", "Selected method is not available.")
 		return
 	}
 
@@ -805,6 +864,62 @@ func panelFlashMessage(r *http.Request) (string, string) {
 	}
 }
 
+func flashMessageFromQuery(r *http.Request) (string, string) {
+	if r == nil {
+		return "", ""
+	}
+	q := r.URL.Query()
+	if msg := q.Get("msg"); msg != "" {
+		switch msg {
+		case "success", "plan_activated":
+			return "Plan activated successfully.", "success"
+		case "deposit_created":
+			return "Deposit invoice created. Follow the payment instructions below.", "success"
+		case "deposit_exists":
+			return "You already have a pending deposit. Continue from the existing invoice.", "info"
+		case "ticket_created":
+			return "Support ticket created. We will respond as soon as possible.", "success"
+		case "ticket_reply":
+			return "Your reply was sent to support.", "success"
+		}
+	}
+	if err := q.Get("err"); err != "" {
+		switch err {
+		case "invalid", "1":
+			return "Invalid username or password.", "error"
+		case "rate_limit":
+			return "Too many attempts. Please wait a moment and try again.", "error"
+		case "session":
+			return "Session could not be created. Please try again.", "error"
+		case "csrf":
+			return "Security token expired. Please retry the form.", "error"
+		case "invalid_code":
+			return "Invalid access token. Please check and try again.", "error"
+		case "taken":
+			return "That username is already taken.", "error"
+		case "bad_ref":
+			return "Referral code could not be verified.", "error"
+		case "captcha_wrong":
+			return "Captcha verification failed. Please try again.", "error"
+		case "min":
+			return "Minimum deposit amount is $1.00.", "error"
+		case "balance":
+			return "Insufficient balance. Add funds to continue.", "error"
+		case "wallets":
+			return "Deposits are temporarily unavailable. Please contact support.", "error"
+		case "prod":
+			return "The selected plan could not be found.", "error"
+		case "user":
+			return "We could not load your account. Please retry.", "error"
+		case "db":
+			return "Something went wrong. Please try again shortly.", "error"
+		case "duplicate":
+			return "This request was already processed.", "info"
+		}
+	}
+	return "", ""
+}
+
 func handlePage(pName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		setSecurityHeaders(w)
@@ -865,6 +980,9 @@ func handlePage(pName string) http.HandlerFunc {
 		methodsMap, mBytes := loadMethodsFromDB()
 		limits := getPlanConfig(u.Plan)
 		flashMessage, flashType := panelFlashMessage(r)
+		if flashMessage == "" {
+			flashMessage, flashType = flashMessageFromQuery(r)
+		}
 		pd := PageData{
 			Username:         u.Username,
 			UserPlan:         u.Plan,
@@ -888,6 +1006,7 @@ func handlePage(pName string) http.HandlerFunc {
 			CsrfToken:        csrfToken,
 			FlashMessage:     flashMessage,
 			FlashType:        flashType,
+			RequestID:        generateToken(),
 		}
 		renderTemplate(w, pName, pd)
 	}
@@ -987,6 +1106,17 @@ func handlePanelL4Submit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if r.ContentLength > maxBodySize {
+		http.Error(w, "Request Entity Too Large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	if err := r.ParseForm(); err != nil {
+		if isRequestBodyTooLarge(err) {
+			http.Error(w, "Request Entity Too Large", http.StatusRequestEntityTooLarge)
+			return
+		}
+	}
 	if !validateCSRF(r) {
 		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
 		return
@@ -1077,6 +1207,17 @@ func handlePanelL7Submit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
+	}
+	if r.ContentLength > maxBodySize {
+		http.Error(w, "Request Entity Too Large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	if err := r.ParseForm(); err != nil {
+		if isRequestBodyTooLarge(err) {
+			http.Error(w, "Request Entity Too Large", http.StatusRequestEntityTooLarge)
+			return
+		}
 	}
 	if !validateCSRF(r) {
 		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
@@ -1176,7 +1317,7 @@ func apiList(w http.ResponseWriter, r *http.Request) {
 
 	username, ok := validateSession(r)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.")
 		return
 	}
 	mu.Lock()
@@ -1197,20 +1338,20 @@ func apiStop(w http.ResponseWriter, r *http.Request) {
 
 	username, ok := validateSession(r)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.")
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed.")
 		return
 	}
 	if !validateCSRF(r) {
-		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		writeJSONError(w, http.StatusForbidden, "csrf", "CSRF validation failed.")
 		return
 	}
 	id := r.FormValue("id")
 	if id == "" {
-		http.Error(w, "Missing id", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "missing_id", "Missing id.")
 		return
 	}
 	stopped := false
@@ -1235,15 +1376,15 @@ func apiStopAll(w http.ResponseWriter, r *http.Request) {
 
 	username, ok := validateSession(r)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.")
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed.")
 		return
 	}
 	if !validateCSRF(r) {
-		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		writeJSONError(w, http.StatusForbidden, "csrf", "CSRF validation failed.")
 		return
 	}
 	stopped := 0
@@ -1270,6 +1411,17 @@ func handleGenCode(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
+	}
+	if r.ContentLength > maxBodySize {
+		http.Error(w, "Request Entity Too Large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	if err := r.ParseForm(); err != nil {
+		if isRequestBodyTooLarge(err) {
+			http.Error(w, "Request Entity Too Large", http.StatusRequestEntityTooLarge)
+			return
+		}
 	}
 	if !validateCSRF(r) {
 		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
@@ -1505,6 +1657,17 @@ func handleCreateTicket(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if r.ContentLength > maxBodySize {
+		http.Error(w, "Request Entity Too Large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	if err := r.ParseForm(); err != nil {
+		if isRequestBodyTooLarge(err) {
+			http.Error(w, "Request Entity Too Large", http.StatusRequestEntityTooLarge)
+			return
+		}
+	}
 	if !validateCSRF(r) {
 		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
 		return
@@ -1516,7 +1679,7 @@ func handleCreateTicket(w http.ResponseWriter, r *http.Request) {
 	msg := []TicketMessage{{Sender: u, Content: message, Time: time.Now().Format("2006-01-02 15:04"), IsAdmin: false}}
 	msgJSON, _ := json.Marshal(msg)
 	db.Exec("INSERT INTO tickets (id, user_id, category, subject, status, last_update, messages) VALUES (?, ?, ?, ?, ?, ?, ?)", tid, u, category, subject, "Open", time.Now(), string(msgJSON))
-	http.Redirect(w, r, "/support", 302)
+	http.Redirect(w, r, "/support?msg=ticket_created", http.StatusFound)
 }
 
 func handleReplyTicket(w http.ResponseWriter, r *http.Request) {
@@ -1527,6 +1690,17 @@ func handleReplyTicket(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
+	}
+	if r.ContentLength > maxBodySize {
+		http.Error(w, "Request Entity Too Large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	if err := r.ParseForm(); err != nil {
+		if isRequestBodyTooLarge(err) {
+			http.Error(w, "Request Entity Too Large", http.StatusRequestEntityTooLarge)
+			return
+		}
 	}
 	if !validateCSRF(r) {
 		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
@@ -1551,7 +1725,7 @@ func handleReplyTicket(w http.ResponseWriter, r *http.Request) {
 	if isAdmin {
 		http.Redirect(w, r, "/admin?view=tickets&ticket="+tid, 302)
 	} else {
-		http.Redirect(w, r, "/support?ticket="+tid, 302)
+		http.Redirect(w, r, "/support?ticket="+tid+"&msg=ticket_reply", 302)
 	}
 }
 
@@ -1575,12 +1749,12 @@ func apiLaunch(w http.ResponseWriter, r *http.Request) {
 
 	usr, ok := getUserByToken(tok)
 	if !ok {
-		http.Error(w, "Bad Token", http.StatusForbidden)
+		writeJSONError(w, http.StatusForbidden, "bad_token", "Invalid token.")
 		return
 	}
 	target := Sanitize(r.URL.Query().Get("target"))
 	if isBlacklisted(target) {
-		http.Error(w, "Target Blacklisted", http.StatusForbidden)
+		writeJSONError(w, http.StatusForbidden, "target_blacklisted", "Target is blacklisted.")
 		return
 	}
 	launchAttack(usr.Username, target, "80", "60", "UDP", "1")
@@ -1662,19 +1836,19 @@ func handleChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	username, ok := validateSession(r)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.")
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed.")
 		return
 	}
 	if !validateCSRF(r) {
-		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		writeJSONError(w, http.StatusForbidden, "csrf", "CSRF validation failed.")
 		return
 	}
 	if isRateLimited(getIP(r)) {
-		http.Error(w, "Rate Limit", http.StatusTooManyRequests)
+		writeJSONError(w, http.StatusTooManyRequests, "rate_limited", "Too many requests.")
 		return
 	}
 
@@ -1683,47 +1857,52 @@ func handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		Next    string `json:"next"`
 		Confirm string `json:"confirm"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Bad Request", http.StatusBadRequest)
+		if isRequestBodyTooLarge(err) {
+			writeJSONError(w, http.StatusRequestEntityTooLarge, "payload_too_large", "Request body too large.")
+			return
+		}
+		writeJSONError(w, http.StatusBadRequest, "bad_request", "Invalid request payload.")
 		return
 	}
 	if req.Next == "" || req.Current == "" {
-		http.Error(w, "Missing Fields", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "missing_fields", "Missing required fields.")
 		return
 	}
 	if req.Next != req.Confirm {
-		http.Error(w, "Password Mismatch", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "password_mismatch", "Password confirmation does not match.")
 		return
 	}
 	if len(req.Next) < 8 {
-		http.Error(w, "Password Too Short", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "password_too_short", "Password must be at least 8 characters.")
 		return
 	}
 
 	var dbHash string
 	if err := db.QueryRow("SELECT password FROM users WHERE username=?", username).Scan(&dbHash); err != nil {
-		http.Error(w, "User Not Found", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "user_not_found", "User not found.")
 		return
 	}
 	match, _ := comparePasswordAndHash(req.Current, dbHash)
 	if !match {
-		http.Error(w, "Invalid Current Password", http.StatusForbidden)
+		writeJSONError(w, http.StatusForbidden, "invalid_password", "Current password is incorrect.")
 		return
 	}
 
 	newHash, err := generatePasswordHash(req.Next)
 	if err != nil {
-		http.Error(w, "Server Error", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "server_error", "Server error.")
 		return
 	}
 	if _, err := db.Exec("UPDATE users SET password=? WHERE username=?", newHash, username); err != nil {
-		http.Error(w, "DB Error", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "db_error", "Database error.")
 		return
 	}
 
 	if c, err := r.Cookie(sessionCookieName); err == nil && c.Value != "" {
 		if _, err := db.Exec("DELETE FROM sessions WHERE username=? AND token<>?", username, c.Value); err != nil {
-			http.Error(w, "DB Error", http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "db_error", "Database error.")
 			return
 		}
 	}
@@ -1738,25 +1917,25 @@ func handleRotateToken(w http.ResponseWriter, r *http.Request) {
 
 	username, ok := validateSession(r)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.")
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed.")
 		return
 	}
 	if !validateCSRF(r) {
-		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		writeJSONError(w, http.StatusForbidden, "csrf", "CSRF validation failed.")
 		return
 	}
 	if isRateLimited(getIP(r)) {
-		http.Error(w, "Rate Limit", http.StatusTooManyRequests)
+		writeJSONError(w, http.StatusTooManyRequests, "rate_limited", "Too many requests.")
 		return
 	}
 
 	newTok := generateToken() + generateToken()
 	if _, err := db.Exec("UPDATE users SET api_token=? WHERE username=?", newTok, username); err != nil {
-		http.Error(w, "DB Error", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "db_error", "Database error.")
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]any{"status": "ok", "token": newTok})
@@ -1780,7 +1959,7 @@ func handleListSessions(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := db.Query("SELECT token, COALESCE(created_at,0), COALESCE(last_seen,0), COALESCE(user_agent,''), COALESCE(ip,''), expires FROM sessions WHERE username=? ORDER BY COALESCE(last_seen,0) DESC", username)
 	if err != nil {
-		http.Error(w, "DB Error", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "db_error", "Database error.")
 		return
 	}
 	defer rows.Close()
@@ -1802,29 +1981,34 @@ func handleRevokeSession(w http.ResponseWriter, r *http.Request) {
 
 	username, ok := validateSession(r)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.")
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed.")
 		return
 	}
 	if !validateCSRF(r) {
-		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		writeJSONError(w, http.StatusForbidden, "csrf", "CSRF validation failed.")
 		return
 	}
 
 	var req struct {
 		Token string `json:"token"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Token == "" {
-		http.Error(w, "Bad Request", http.StatusBadRequest)
+		if isRequestBodyTooLarge(err) {
+			writeJSONError(w, http.StatusRequestEntityTooLarge, "payload_too_large", "Request body too large.")
+			return
+		}
+		writeJSONError(w, http.StatusBadRequest, "bad_request", "Invalid request payload.")
 		return
 	}
 
 	res, err := db.Exec("DELETE FROM sessions WHERE token=? AND username=?", req.Token, username)
 	if err != nil {
-		http.Error(w, "DB Error", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "db_error", "Database error.")
 		return
 	}
 	affected, _ := res.RowsAffected()
@@ -1838,15 +2022,15 @@ func handleRevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 
 	username, ok := validateSession(r)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.")
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed.")
 		return
 	}
 	if !validateCSRF(r) {
-		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		writeJSONError(w, http.StatusForbidden, "csrf", "CSRF validation failed.")
 		return
 	}
 
@@ -1856,13 +2040,13 @@ func handleRevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 		current = c.Value
 	}
 	if current == "" {
-		http.Error(w, "No current session", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "missing_session", "No current session.")
 		return
 	}
 
 	res, err := db.Exec("DELETE FROM sessions WHERE username=? AND token<>?", username, current)
 	if err != nil {
-		http.Error(w, "DB Error", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "db_error", "Database error.")
 		return
 	}
 	affected, _ := res.RowsAffected()
