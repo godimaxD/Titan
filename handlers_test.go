@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -38,6 +39,7 @@ func setupTestDB(t *testing.T) {
 			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price REAL, time INTEGER, concurrents INTEGER, vip BOOLEAN, api_access BOOLEAN
 		);`,
 		`CREATE TABLE plans (name TEXT PRIMARY KEY, concurrents INTEGER, max_time INTEGER, vip BOOLEAN, api BOOLEAN);`,
+		`CREATE TABLE redeem_codes (code TEXT PRIMARY KEY, plan TEXT, used BOOLEAN);`,
 		`CREATE TABLE wallets (address TEXT PRIMARY KEY, private_key TEXT, status TEXT, assigned_to TEXT);`,
 		`CREATE TABLE deposits (
 			id TEXT PRIMARY KEY, user_id TEXT, amount REAL, address TEXT, status TEXT, date TEXT, expires INTEGER,
@@ -286,6 +288,190 @@ func TestPanelFormPagesRequireSession(t *testing.T) {
 	handlePanelL7Page(rr, req)
 	if rr.Result().StatusCode != http.StatusFound {
 		t.Fatalf("expected redirect, got %d", rr.Result().StatusCode)
+	}
+}
+
+func TestHandleRedeemLoginSuccess(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO redeem_codes (code, plan, used) VALUES ('RDM123', 'Free', 0)"); err != nil {
+		t.Fatalf("insert redeem code: %v", err)
+	}
+
+	body := url.Values{
+		"code":       {"RDM123"},
+		"csrf_token": {"csrf-token"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/redeem-login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.RemoteAddr = "127.0.0.1:1234"
+
+	rr := httptest.NewRecorder()
+	handleRedeemLogin(rr, req)
+
+	res := rr.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", res.StatusCode)
+	}
+	if loc := res.Header.Get("Location"); !strings.HasPrefix(loc, "/dashboard") {
+		t.Fatalf("expected dashboard redirect, got %q", loc)
+	}
+	foundSession := false
+	for _, c := range res.Cookies() {
+		if c.Name == sessionCookieName && c.Value != "" {
+			foundSession = true
+			break
+		}
+	}
+	if !foundSession {
+		t.Fatalf("expected session cookie")
+	}
+
+	var used bool
+	if err := db.QueryRow("SELECT used FROM redeem_codes WHERE code='RDM123'").Scan(&used); err != nil {
+		t.Fatalf("query redeem code: %v", err)
+	}
+	if !used {
+		t.Fatalf("expected code to be marked used")
+	}
+
+	reqReuse := httptest.NewRequest(http.MethodPost, "/redeem-login", strings.NewReader(body))
+	reqReuse.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	reqReuse.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	reqReuse.RemoteAddr = "127.0.0.1:1234"
+	rrReuse := httptest.NewRecorder()
+	handleRedeemLogin(rrReuse, reqReuse)
+	if loc := rrReuse.Result().Header.Get("Location"); loc != "/login?err=invalid_code" {
+		t.Fatalf("expected invalid code redirect, got %q", loc)
+	}
+}
+
+func TestHandleRedeemLoginFailure(t *testing.T) {
+	cases := []struct {
+		name  string
+		code  string
+		setup func(t *testing.T)
+	}{
+		{
+			name: "unknown code",
+			code: "MISSING",
+			setup: func(t *testing.T) {
+				t.Helper()
+			},
+		},
+		{
+			name: "used code",
+			code: "USED123",
+			setup: func(t *testing.T) {
+				t.Helper()
+				if _, err := db.Exec("INSERT INTO redeem_codes (code, plan, used) VALUES ('USED123', 'Free', 1)"); err != nil {
+					t.Fatalf("insert redeem code: %v", err)
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setupTestDB(t)
+			tc.setup(t)
+
+			body := url.Values{
+				"code":       {tc.code},
+				"csrf_token": {"csrf-token"},
+			}.Encode()
+			req := httptest.NewRequest(http.MethodPost, "/redeem-login", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+			req.RemoteAddr = "127.0.0.1:1234"
+
+			rr := httptest.NewRecorder()
+			handleRedeemLogin(rr, req)
+
+			if loc := rr.Result().Header.Get("Location"); loc != "/login?err=invalid_code" {
+				t.Fatalf("expected invalid code redirect, got %q", loc)
+			}
+		})
+	}
+}
+
+func TestProfileShowsApiTokenForSessionUser(t *testing.T) {
+	cases := []struct {
+		name         string
+		sessionUser  string
+		expectToken  string
+		absentToken  string
+	}{
+		{
+			name:        "alice sees alice token",
+			sessionUser: "alice",
+			expectToken: "tok-alice",
+			absentToken: "tok-bob",
+		},
+		{
+			name:        "bob sees bob token",
+			sessionUser: "bob",
+			expectToken: "tok-bob",
+			absentToken: "tok-alice",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setupTestDB(t)
+			if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok-alice', 'u#1', 0, 'refa', '', 0, 0)"); err != nil {
+				t.Fatalf("insert alice: %v", err)
+			}
+			if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('bob', 'x', 'Free', 'Active', 'tok-bob', 'u#2', 0, 'refb', '', 0, 0)"); err != nil {
+				t.Fatalf("insert bob: %v", err)
+			}
+
+			sess := createSession(tc.sessionUser, nil)
+			if sess == "" {
+				t.Fatalf("expected session token")
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "/profile", nil)
+			req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+			req.RemoteAddr = "127.0.0.1:1234"
+
+			rr := httptest.NewRecorder()
+			handlePage("profile.html")(rr, req)
+
+			body := rr.Body.String()
+			if !strings.Contains(body, tc.expectToken) {
+				t.Fatalf("expected token %q in response", tc.expectToken)
+			}
+			if strings.Contains(body, tc.absentToken) {
+				t.Fatalf("did not expect token %q in response", tc.absentToken)
+			}
+		})
+	}
+}
+
+func TestStatusPageShowsUptimeOnly(t *testing.T) {
+	setupTestDB(t)
+	startTime = time.Now().Add(-2 * time.Hour)
+
+	req := httptest.NewRequest(http.MethodGet, "/status", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	rr := httptest.NewRecorder()
+	handleStatusPage(rr, req)
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "Uptime") {
+		t.Fatalf("expected uptime label in response")
+	}
+	uptimeRe := regexp.MustCompile(`Uptime</div>\s*<div[^>]*>[^<]+</div>`)
+	if !uptimeRe.MatchString(body) {
+		t.Fatalf("expected non-empty uptime value")
+	}
+
+	lower := strings.ToLower(body)
+	for _, keyword := range []string{"db", "wallet", "users", "runtime", "goroutine", "memory"} {
+		if strings.Contains(lower, keyword) {
+			t.Fatalf("did not expect keyword %q in status page", keyword)
+		}
 	}
 }
 

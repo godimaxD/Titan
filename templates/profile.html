@@ -139,7 +139,7 @@
                     <div class="md:col-span-2">
                         <h3 class="text-sm font-bold text-gray-400 uppercase tracking-widest mb-3">API Token</h3>
                         <div class="bg-black/30 border border-white/10 rounded-xl p-4 flex items-center justify-between gap-3">
-                            <code class="font-mono text-sm text-indigo-300 break-all cursor-pointer" :class="showToken ? '' : 'filter blur-[4px]'" @click="toggleToken()" x-text="currentToken"></code>
+                            <code class="font-mono text-sm text-indigo-300 break-all cursor-pointer" :class="showToken ? '' : 'filter blur-[4px]'" @click="toggleToken()" x-text="currentToken">{{.ApiToken}}</code>
                             <div class="flex gap-2">
                                 <button class="px-3 py-2 rounded-lg border border-white/10 text-xs font-bold hover:bg-white/10" @click="copyToken()">COPY</button>
                                 <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-500" @click="rotateToken()">REGENERATE</button>
