@@ -368,7 +368,14 @@ func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var walletAddr string
-	err = tx.QueryRow("SELECT address FROM wallets WHERE status='Free' LIMIT 1").Scan(&walletAddr)
+	err = tx.QueryRow(`
+		SELECT address
+		FROM wallets
+		WHERE (status = 'Free' OR status IS NULL OR TRIM(status) = '')
+			AND (assigned_to IS NULL OR assigned_to = '')
+		ORDER BY address
+		LIMIT 1
+	`).Scan(&walletAddr)
 
 	if err != nil {
 		tx.Rollback()
@@ -386,9 +393,21 @@ func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := tx.Exec("UPDATE wallets SET status='Busy', assigned_to=? WHERE address=?", depID, walletAddr); err != nil {
+	res, err := tx.Exec(`
+		UPDATE wallets
+		SET status='Busy', assigned_to=?
+		WHERE address=?
+			AND (status = 'Free' OR status IS NULL OR TRIM(status) = '')
+			AND (assigned_to IS NULL OR assigned_to = '')
+	`, depID, walletAddr)
+	if err != nil {
 		tx.Rollback()
 		http.Redirect(w, r, "/deposit?err=db", http.StatusFound)
+		return
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		tx.Rollback()
+		http.Redirect(w, r, "/deposit?err=wallets", http.StatusFound)
 		return
 	}
 
@@ -545,6 +564,7 @@ func handleCheckDeposit(w http.ResponseWriter, r *http.Request) {
 	}
 	if !expires.IsZero() && status == "Pending" && time.Now().After(expires) {
 		_, _ = db.Exec("UPDATE deposits SET status='Expired' WHERE id = ?", id)
+		_, _ = db.Exec("UPDATE wallets SET status='Free', assigned_to='' WHERE assigned_to=?", id)
 		status = "Expired"
 	}
 	normalized := normalizeDepositStatus(status)
