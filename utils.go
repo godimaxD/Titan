@@ -153,6 +153,14 @@ func getIP(r *http.Request) string {
 	return ip
 }
 
+func clientIP(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	return ip
+}
+
 type ArgonParams struct {
 	memory, iterations, saltLength, keyLength uint32
 	parallelism                               uint8
@@ -223,6 +231,17 @@ func getUser(u string) (User, bool) {
 	var usr User
 	err := db.QueryRow("SELECT username, password, plan, status, balance, ref_code, referred_by, ref_earnings FROM users WHERE username=?", u).Scan(&usr.Username, &usr.Password, &usr.Plan, &usr.Status, &usr.Balance, &usr.RefCode, &usr.ReferredBy, &usr.RefEarnings)
 	return usr, err == nil
+}
+
+func getUserIDByUsername(username string) string {
+	if username == "" {
+		return ""
+	}
+	var userID string
+	if err := db.QueryRow("SELECT user_id FROM users WHERE username=?", username).Scan(&userID); err != nil {
+		return ""
+	}
+	return userID
 }
 func generateTronWallet() (string, string) {
 	priv, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
