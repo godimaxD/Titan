@@ -1,5 +1,5 @@
-<!DOCTYPE html><html lang="en"><head>
-    {{template "theme_script"}}<title>Documentation | TITAN</title><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><script src="https://cdn.tailwindcss.com"></script><script src="//unpkg.com/alpinejs" defer></script><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<!DOCTYPE html><html lang="en" class="dark"><head>
+    {{template "tailwind_config"}}<title>Documentation | TITAN</title><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><script src="https://cdn.tailwindcss.com"></script><script src="//unpkg.com/alpinejs" defer></script><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     
     <style>
         body, div, aside, nav, button, input, span, p, h1, h2, h3, table, td, th {
@@ -8,99 +8,11 @@
             transition-timing-function: ease-in-out;
         }
 
-        /* ========================
-           LIGHT MODE
-           ======================== */
-        :root:not([data-theme="dark"]) body {
-            background: linear-gradient(135deg, var(--bg) 0%, var(--bg-alt) 100%) !important;
-            background-attachment: fixed !important;
-            color: var(--text) !important;
-        }
-
-        :root:not([data-theme="dark"]) .glass-panel {
-            background: var(--card) !important;
-            backdrop-filter: blur(20px) !important;
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid var(--border) !important;
-            box-shadow: var(--shadow) !important;
-        }
-
-        :root:not([data-theme="dark"]) aside {
-            background: rgba(255, 255, 255, 0.85) !important;
-            border-right: 1px solid var(--border) !important;
-            box-shadow: 4px 0 24px rgba(15, 23, 42, 0.06);
-        }
-
-        :root:not([data-theme="dark"]) .nav-item { color: var(--muted) !important; font-weight: 700; }
-        :root:not([data-theme="dark"]) .nav-item:hover {
-            background: rgba(15, 23, 42, 0.04) !important;
-            color: var(--text) !important;
-            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
-        }
-        :root:not([data-theme="dark"]) .nav-item.active-menu {
-            background: rgba(79, 70, 229, 0.12) !important;
-            color: var(--primary) !important;
-            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.15);
-            border: 1px solid rgba(79, 70, 229, 0.2);
-        }
-
-        :root:not([data-theme="dark"]) .glass-input {
-            background: var(--input-bg) !important;
-            border: 1px solid var(--border) !important;
-            color: var(--input-text) !important;
-            font-weight: 600;
-        }
-        :root:not([data-theme="dark"]) .glass-input:focus {
-            background: #ffffff !important;
-            border-color: var(--primary) !important;
-            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
-        }
-        :root:not([data-theme="dark"]) .glass-btn {
-            background: var(--text) !important;
-            border: 1px solid var(--text) !important;
-            color: var(--bg) !important;
-            font-weight: 800;
-            box-shadow: 0 2px 5px rgba(15, 23, 42, 0.1);
-        }
-        :root:not([data-theme="dark"]) .glass-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12); }
-
-        /* ========================
-           DARK MODE
-           ======================== */
-        :root[data-theme="dark"] body {
-            background: var(--bg) !important;
-            color: var(--text) !important;
-        }
-        :root[data-theme="dark"] .glass-panel {
-            background: var(--card) !important;
-            border: 1px solid var(--border) !important;
-            box-shadow: var(--shadow) !important;
-            backdrop-filter: blur(30px) !important;
-        }
-        :root[data-theme="dark"] aside {
-            background: rgba(10, 10, 12, 0.8) !important;
-            border-right: 1px solid var(--border) !important;
-            box-shadow: none !important;
-        }
-        :root[data-theme="dark"] .glass-input {
-            background: var(--input-bg) !important;
-            border: 1px solid var(--border) !important;
-            color: var(--input-text) !important;
-        }
-        :root[data-theme="dark"] .glass-btn {
-            background: linear-gradient(180deg,rgba(255,255,255,0.1),rgba(255,255,255,0.05)) !important;
-            border: 1px solid rgba(255,255,255,0.2) !important;
-            color: white !important;
-        }
-        :root[data-theme="dark"] .nav-item { color: #9ca3af !important; background: transparent !important; }
-        :root[data-theme="dark"] .nav-item:hover { color: white !important; background: rgba(255,255,255,0.03) !important; box-shadow: none !important; }
-        :root[data-theme="dark"] .nav-item.active-menu { background: rgba(20,20,30,0.5) !important; color: white !important; border: 1px solid #4f46e5; box-shadow: 0 0 20px rgba(79,70,229,0.15) !important; }
-
         [x-cloak] { display: none !important; }
     </style>
     {{template "style"}}
 </head><body class="flex h-screen overflow-hidden text-white">
-    {{template "theme_toggle"}}
+    
 <!-- MOBILE NAVIGATION (FLOATING DOCK) -->
 <div class="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-[400px]">
     <div class="glass-panel px-2 py-3 rounded-2xl flex justify-around items-center shadow-2xl bg-white/90 dark:bg-[#050505]/90 border border-black/5 dark:border-white/10 backdrop-blur-xl transition-all duration-300">

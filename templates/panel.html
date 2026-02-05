@@ -1,5 +1,5 @@
-<!DOCTYPE html><html lang="en"><head>
-    {{template "theme_script"}}<title>Attack Hub | TITAN</title><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><script src="https://cdn.tailwindcss.com"></script><script src="//unpkg.com/alpinejs" defer></script><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<!DOCTYPE html><html lang="en" class="dark"><head>
+    {{template "tailwind_config"}}<title>Attack Hub | TITAN</title><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><script src="https://cdn.tailwindcss.com"></script><script src="//unpkg.com/alpinejs" defer></script><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     
     
 
@@ -21,99 +21,11 @@
             transition-timing-function: ease-in-out;
         }
 
-        /* ========================
-           LIGHT MODE
-           ======================== */
-        :root:not([data-theme="dark"]) body {
-            background: linear-gradient(135deg, var(--bg) 0%, var(--bg-alt) 100%) !important;
-            background-attachment: fixed !important;
-            color: var(--text) !important;
-        }
-
-        :root:not([data-theme="dark"]) .glass-panel {
-            background: var(--card) !important;
-            backdrop-filter: blur(20px) !important;
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid var(--border) !important;
-            box-shadow: var(--shadow) !important;
-        }
-
-        :root:not([data-theme="dark"]) aside {
-            background: rgba(255, 255, 255, 0.85) !important;
-            border-right: 1px solid var(--border) !important;
-            box-shadow: 4px 0 24px rgba(15, 23, 42, 0.06);
-        }
-
-        :root:not([data-theme="dark"]) .nav-item { color: var(--muted) !important; font-weight: 700; }
-        :root:not([data-theme="dark"]) .nav-item:hover {
-            background: rgba(15, 23, 42, 0.04) !important;
-            color: var(--text) !important;
-            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
-        }
-        :root:not([data-theme="dark"]) .nav-item.active-menu {
-            background: rgba(79, 70, 229, 0.12) !important;
-            color: var(--primary) !important;
-            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.15);
-            border: 1px solid rgba(79, 70, 229, 0.2);
-        }
-
-        :root:not([data-theme="dark"]) .glass-input {
-            background: var(--input-bg) !important;
-            border: 1px solid var(--border) !important;
-            color: var(--input-text) !important;
-            font-weight: 600;
-        }
-        :root:not([data-theme="dark"]) .glass-input:focus {
-            background: #ffffff !important;
-            border-color: var(--primary) !important;
-            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
-        }
-        :root:not([data-theme="dark"]) .glass-btn {
-            background: var(--text) !important;
-            border: 1px solid var(--text) !important;
-            color: var(--bg) !important;
-            font-weight: 800;
-            box-shadow: 0 2px 5px rgba(15, 23, 42, 0.1);
-        }
-        :root:not([data-theme="dark"]) .glass-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12); }
-
-        /* ========================
-           DARK MODE
-           ======================== */
-        :root[data-theme="dark"] body {
-            background: var(--bg) !important;
-            color: var(--text) !important;
-        }
-        :root[data-theme="dark"] .glass-panel {
-            background: var(--card) !important;
-            border: 1px solid var(--border) !important;
-            box-shadow: var(--shadow) !important;
-            backdrop-filter: blur(30px) !important;
-        }
-        :root[data-theme="dark"] aside {
-            background: rgba(10, 10, 12, 0.8) !important;
-            border-right: 1px solid var(--border) !important;
-            box-shadow: none !important;
-        }
-        :root[data-theme="dark"] .glass-input {
-            background: var(--input-bg) !important;
-            border: 1px solid var(--border) !important;
-            color: var(--input-text) !important;
-        }
-        :root[data-theme="dark"] .glass-btn {
-            background: linear-gradient(180deg,rgba(255,255,255,0.1),rgba(255,255,255,0.05)) !important;
-            border: 1px solid rgba(255,255,255,0.2) !important;
-            color: white !important;
-        }
-        :root[data-theme="dark"] .nav-item { color: #9ca3af !important; background: transparent !important; }
-        :root[data-theme="dark"] .nav-item:hover { color: white !important; background: rgba(255,255,255,0.03) !important; box-shadow: none !important; }
-        :root[data-theme="dark"] .nav-item.active-menu { background: rgba(20,20,30,0.5) !important; color: white !important; border: 1px solid #4f46e5; box-shadow: 0 0 20px rgba(79,70,229,0.15) !important; }
-
         [x-cloak] { display: none !important; }
     </style>
     {{template "style"}}
 </head><body class="flex h-screen overflow-hidden  text-white">
-    {{template "theme_toggle"}}
+    
 <div id="toast-container" class="fixed top-6 right-6 z-[99999] flex flex-col gap-3 pointer-events-none"></div>
 <!-- MOBILE NAVIGATION (FLOATING DOCK) -->
 <div class="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-[400px]">
@@ -239,7 +151,6 @@
 </aside>
 
 <main class="flex-1 flex flex-col relative overflow-hidden"><div class="absolute w-[800px] h-[800px] bg-indigo-900/10 rounded-full blur-[150px] -top-40 -left-20 -z-10 blob"></div><div class="absolute w-[600px] h-[600px] bg-purple-900/10 rounded-full blur-[150px] bottom-0 right-0 -z-10 blob"></div><header class="w-full h-20 flex items-center justify-between px-8 md:px-12 border-b border-white/5 /60 backdrop-blur z-10 sticky top-0"><h1 class="text-2xl font-black tracking-tight text-white uppercase">Attack Hub</h1><div class="flex items-center gap-4">
-    <!-- THEME SWITCHER -->
     
 
 <div class="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/10 text-gray-400 hover:text-white cursor-pointer transition"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg></div></div></header>

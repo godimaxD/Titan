@@ -1,25 +1,6 @@
 {{define "style"}}
     <style>
         :root {
-            color-scheme: light dark;
-            --bg: #f4f6fb;
-            --bg-alt: #eef2f7;
-            --text: #101827;
-            --muted: #4b5563;
-            --card: rgba(255, 255, 255, 0.92);
-            --border: rgba(15, 23, 42, 0.08);
-            --input-bg: #ffffff;
-            --input-text: #111827;
-            --primary: #4f46e5;
-            --danger: #dc2626;
-            --success: #16a34a;
-            --warning: #d97706;
-            --shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
-            --glass-border: rgba(15, 23, 42, 0.12);
-        }
-
-        :root[data-theme="dark"],
-        .dark {
             color-scheme: dark;
             --bg: #050505;
             --bg-alt: #0a0a0c;
@@ -47,36 +28,6 @@
         }
 
         a { color: inherit; }
-
-        :root:not([data-theme="dark"]) .text-white { color: var(--text) !important; }
-        :root:not([data-theme="dark"]) .text-gray-300 { color: #374151 !important; }
-        :root:not([data-theme="dark"]) .text-gray-400 { color: #4b5563 !important; }
-        :root:not([data-theme="dark"]) .text-gray-500 { color: #6b7280 !important; }
-        :root:not([data-theme="dark"]) .text-gray-600 { color: #475569 !important; }
-        :root:not([data-theme="dark"]) .text-gray-700 { color: #334155 !important; }
-        :root:not([data-theme="dark"]) .text-indigo-400 { color: #4338ca !important; }
-        :root:not([data-theme="dark"]) .text-indigo-500 { color: #4338ca !important; }
-
-        :root:not([data-theme="dark"]) .admin-nav-item {
-            color: var(--muted) !important;
-        }
-
-        :root:not([data-theme="dark"]) .admin-nav-item:hover {
-            color: var(--text) !important;
-            background: rgba(15, 23, 42, 0.04) !important;
-        }
-
-        :root:not([data-theme="dark"]) .admin-nav-item.active {
-            background: rgba(79, 70, 229, 0.12) !important;
-            color: var(--primary) !important;
-            border: 1px solid rgba(79, 70, 229, 0.2) !important;
-        }
-
-        :root:not([data-theme="dark"]) .status-badge {
-            background: rgba(15, 23, 42, 0.06) !important;
-            color: var(--text) !important;
-            border: 1px solid var(--border) !important;
-        }
 
         table {
             color: var(--text);
@@ -158,51 +109,6 @@
             border: 0;
         }
 
-        .theme-toggle {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            width: 42px;
-            height: 42px;
-            border-radius: 12px;
-            border: 1px solid var(--border);
-            background: var(--card);
-            color: var(--text);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: var(--shadow);
-            z-index: 1000;
-        }
-
-        .theme-toggle:focus-visible {
-            outline: 2px solid var(--primary);
-            outline-offset: 2px;
-        }
-
-        .theme-icon {
-            width: 20px;
-            height: 20px;
-        }
-
-        :root[data-theme="dark"] .theme-icon-sun,
-        .dark .theme-icon-sun {
-            display: inline-flex;
-        }
-
-        :root[data-theme="dark"] .theme-icon-moon,
-        .dark .theme-icon-moon {
-            display: none;
-        }
-
-        :root:not([data-theme="dark"]) .theme-icon-sun {
-            display: none;
-        }
-
-        :root:not([data-theme="dark"]) .theme-icon-moon {
-            display: inline-flex;
-        }
-
         /* SCROLLBAR */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 10px; }
@@ -210,72 +116,10 @@
     </style>
 {{end}}
 
-{{define "theme_script"}}
+{{define "tailwind_config"}}
     <script>
-        (function () {
-            const root = document.documentElement;
-            const storageKey = 'theme';
-            const stored = localStorage.getItem(storageKey) || localStorage.getItem('titan-theme') || localStorage.theme;
-            const mql = window.matchMedia('(prefers-color-scheme: dark)');
-
-            const applyTheme = (theme) => {
-                root.classList.toggle('dark', theme === 'dark');
-                root.dataset.theme = theme;
-            };
-
-            if (stored === 'light' || stored === 'dark') {
-                applyTheme(stored);
-            } else {
-                applyTheme(mql.matches ? 'dark' : 'light');
-            }
-
-            const syncToggleState = () => {
-                const isDark = root.classList.contains('dark');
-                document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
-                    btn.setAttribute('aria-pressed', isDark ? 'true' : 'false');
-                });
-            };
-
-            const handleSystemChange = (event) => {
-                if (localStorage.getItem(storageKey) || localStorage.getItem('titan-theme') || localStorage.theme) {
-                    return;
-                }
-                applyTheme(event.matches ? 'dark' : 'light');
-                syncToggleState();
-            };
-
-            if (!stored) {
-                if (mql.addEventListener) {
-                    mql.addEventListener('change', handleSystemChange);
-                } else if (mql.addListener) {
-                    mql.addListener(handleSystemChange);
-                }
-            }
-
-            document.addEventListener('DOMContentLoaded', () => {
-                syncToggleState();
-                document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
-                    btn.addEventListener('click', () => {
-                        const isDark = root.classList.contains('dark');
-                        const next = isDark ? 'light' : 'dark';
-                        localStorage.setItem(storageKey, next);
-                        applyTheme(next);
-                        syncToggleState();
-                    });
-                });
-            });
-        })();
+        tailwind.config = {
+            darkMode: 'class'
+        };
     </script>
-{{end}}
-
-{{define "theme_toggle"}}
-    <button type="button" class="theme-toggle" data-theme-toggle aria-label="Toggle theme">
-        <span class="sr-only">Toggle theme</span>
-        <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
-        </svg>
-        <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
-        </svg>
-    </button>
 {{end}}

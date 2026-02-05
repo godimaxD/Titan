@@ -1,7 +1,7 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
-    {{template "theme_script"}}
+    {{template "tailwind_config"}}
     <title>Receipt #{{.ID}}</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,10 +10,6 @@
     
     <style>
         body { transition: background 0.3s, color 0.3s; }
-        :root:not([data-theme="dark"]) body { background: linear-gradient(135deg, var(--bg) 0%, var(--bg-alt) 100%); color: var(--text); }
-        :root:not([data-theme="dark"]) .glass { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); backdrop-filter: blur(20px); }
-        :root[data-theme="dark"] body { background: var(--bg); color: var(--text); }
-        :root[data-theme="dark"] .glass { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); }
         @media print {
             .no-print { display: none !important; }
         }
@@ -21,7 +17,7 @@
     {{template "style"}}
 </head>
 <body class="min-h-screen flex items-center justify-center p-6">
-    {{template "theme_toggle"}}
+    
     <div class="glass w-full max-w-3xl rounded-3xl p-8 md:p-10">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-8">
             <div>

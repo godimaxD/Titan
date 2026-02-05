@@ -1,7 +1,7 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
-    {{template "theme_script"}}
+    {{template "tailwind_config"}}
     <title>TITAN | Command Center</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,7 +12,6 @@
     <style>
         body { font-family: 'Inter', sans-serif; transition: background 0.3s, color 0.3s; }
         
-        /* THEMES */
         .dark body { background: #050507; color: #E4E4E7; }
         body { background: #F3F4F6; color: #18181B; } /* Light Gray SaaS Look */
 
@@ -94,7 +93,7 @@
     {{template "style"}}
 </head>
 <body class="flex h-screen overflow-hidden">
-    {{template "theme_toggle"}}
+    
 
     <!-- ADMIN SIDEBAR -->
     <aside class="w-64 h-full flex flex-col border-r border-gray-200 dark:border-white/5 bg-white dark:bg-[#08080a] z-50">

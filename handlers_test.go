@@ -892,7 +892,7 @@ func TestRegisterRejectsBadReferral(t *testing.T) {
 	if rr.Result().StatusCode != http.StatusFound {
 		t.Fatalf("expected redirect, got %d", rr.Result().StatusCode)
 	}
-	if loc := rr.Result().Header.Get("Location"); loc != "/register?err=bad_ref" {
+	if loc := rr.Result().Header.Get("Location"); loc != "/register?err=bad_ref&ref=NOPE" {
 		t.Fatalf("unexpected redirect: %q", loc)
 	}
 }

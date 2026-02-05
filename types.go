@@ -101,6 +101,27 @@ type PageData struct {
 	FieldErrors                                                                map[string]string
 	FormValues                                                                 map[string]string
 	FreePlan                                                                   PlanConfig
+	ReferralCode                                                               string
+	ReferralLocked                                                             bool
+	StatusUptime                                                               string
+	StatusStartTime                                                            string
+	StatusServerTime                                                           string
+	StatusServerTimezone                                                       string
+	StatusAppVersion                                                           string
+	StatusDBHealthy                                                            bool
+	StatusDBError                                                              string
+	StatusTotalUsers                                                           int
+	StatusTotalDeposits                                                        int
+	StatusDepositPending                                                       int
+	StatusDepositPaid                                                          int
+	StatusDepositRejected                                                      int
+	StatusDepositExpired                                                       int
+	StatusTotalPurchases                                                       int
+	StatusGoVersion                                                            string
+	StatusOSArch                                                               string
+	StatusMemAlloc                                                             string
+	StatusMemSys                                                               string
+	StatusActiveAttacksAvailable                                               bool
 }
 
 type InvoiceData struct {

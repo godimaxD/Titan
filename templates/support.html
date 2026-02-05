@@ -1,6 +1,6 @@
 
-<!DOCTYPE html><html lang="en"><head>
-    {{template "theme_script"}}<title>Support | TITAN</title><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><script src="https://cdn.tailwindcss.com"></script><script src="//unpkg.com/alpinejs" defer></script><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<!DOCTYPE html><html lang="en" class="dark"><head>
+    {{template "tailwind_config"}}<title>Support | TITAN</title><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><script src="https://cdn.tailwindcss.com"></script><script src="//unpkg.com/alpinejs" defer></script><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     
     
 
@@ -22,99 +22,11 @@
             transition-timing-function: ease-in-out;
         }
 
-        /* ========================
-           LIGHT MODE
-           ======================== */
-        :root:not([data-theme="dark"]) body {
-            background: linear-gradient(135deg, var(--bg) 0%, var(--bg-alt) 100%) !important;
-            background-attachment: fixed !important;
-            color: var(--text) !important;
-        }
-
-        :root:not([data-theme="dark"]) .glass-panel {
-            background: var(--card) !important;
-            backdrop-filter: blur(20px) !important;
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid var(--border) !important;
-            box-shadow: var(--shadow) !important;
-        }
-
-        :root:not([data-theme="dark"]) aside {
-            background: rgba(255, 255, 255, 0.85) !important;
-            border-right: 1px solid var(--border) !important;
-            box-shadow: 4px 0 24px rgba(15, 23, 42, 0.06);
-        }
-
-        :root:not([data-theme="dark"]) .nav-item { color: var(--muted) !important; font-weight: 700; }
-        :root:not([data-theme="dark"]) .nav-item:hover {
-            background: rgba(15, 23, 42, 0.04) !important;
-            color: var(--text) !important;
-            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
-        }
-        :root:not([data-theme="dark"]) .nav-item.active-menu {
-            background: rgba(79, 70, 229, 0.12) !important;
-            color: var(--primary) !important;
-            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.15);
-            border: 1px solid rgba(79, 70, 229, 0.2);
-        }
-
-        :root:not([data-theme="dark"]) .glass-input {
-            background: var(--input-bg) !important;
-            border: 1px solid var(--border) !important;
-            color: var(--input-text) !important;
-            font-weight: 600;
-        }
-        :root:not([data-theme="dark"]) .glass-input:focus {
-            background: #ffffff !important;
-            border-color: var(--primary) !important;
-            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
-        }
-        :root:not([data-theme="dark"]) .glass-btn {
-            background: var(--text) !important;
-            border: 1px solid var(--text) !important;
-            color: var(--bg) !important;
-            font-weight: 800;
-            box-shadow: 0 2px 5px rgba(15, 23, 42, 0.1);
-        }
-        :root:not([data-theme="dark"]) .glass-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12); }
-
-        /* ========================
-           DARK MODE
-           ======================== */
-        :root[data-theme="dark"] body {
-            background: var(--bg) !important;
-            color: var(--text) !important;
-        }
-        :root[data-theme="dark"] .glass-panel {
-            background: var(--card) !important;
-            border: 1px solid var(--border) !important;
-            box-shadow: var(--shadow) !important;
-            backdrop-filter: blur(30px) !important;
-        }
-        :root[data-theme="dark"] aside {
-            background: rgba(10, 10, 12, 0.8) !important;
-            border-right: 1px solid var(--border) !important;
-            box-shadow: none !important;
-        }
-        :root[data-theme="dark"] .glass-input {
-            background: var(--input-bg) !important;
-            border: 1px solid var(--border) !important;
-            color: var(--input-text) !important;
-        }
-        :root[data-theme="dark"] .glass-btn {
-            background: linear-gradient(180deg,rgba(255,255,255,0.1),rgba(255,255,255,0.05)) !important;
-            border: 1px solid rgba(255,255,255,0.2) !important;
-            color: white !important;
-        }
-        :root[data-theme="dark"] .nav-item { color: #9ca3af !important; background: transparent !important; }
-        :root[data-theme="dark"] .nav-item:hover { color: white !important; background: rgba(255,255,255,0.03) !important; box-shadow: none !important; }
-        :root[data-theme="dark"] .nav-item.active-menu { background: rgba(20,20,30,0.5) !important; color: white !important; border: 1px solid #4f46e5; box-shadow: 0 0 20px rgba(79,70,229,0.15) !important; }
-
         [x-cloak] { display: none !important; }
     </style>
     {{template "style"}}
 </head><body class="flex h-screen overflow-hidden  text-white">
-    {{template "theme_toggle"}}
+    
 <!-- MOBILE NAVIGATION (FLOATING DOCK) -->
 <div class="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-[400px]">
     <div class="glass-panel px-2 py-3 rounded-2xl flex justify-around items-center shadow-2xl bg-white/90 dark:bg-[#050505]/90 border border-black/5 dark:border-white/10 backdrop-blur-xl transition-all duration-300">
@@ -233,7 +145,6 @@
     </div>
 </aside>
 </aside><main class="flex-1 flex flex-col relative overflow-hidden"><div class="absolute w-[800px] h-[800px] bg-indigo-900/10 rounded-full blur-[150px] -top-40 -left-20 -z-10 blob"></div><div class="absolute w-[600px] h-[600px] bg-purple-900/10 rounded-full blur-[150px] bottom-0 right-0 -z-10 blob"></div><header class="w-full h-20 flex items-center justify-between px-8 md:px-12 border-b border-white/5 /60 backdrop-blur z-10 sticky top-0"><h1 class="text-2xl font-black tracking-tight text-white uppercase">Support</h1><div class="flex items-center gap-4">
-    <!-- THEME SWITCHER -->
     
 
 <div class="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/10 text-gray-400 hover:text-white cursor-pointer transition"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg></div></div></header><div class="p-6 md:p-10 overflow-y-auto h-full pb-32 md:pb-10 no-scrollbar w-full">{{if .FlashMessage}}<div class="glass-panel rounded-2xl p-4 mb-6 border {{if eq .FlashType "success"}}border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-200{{else if eq .FlashType "info"}}border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-200{{else}}border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-200{{end}} text-sm font-semibold">{{.FlashMessage}}</div>{{end}}<div class="glass-panel rounded-2xl p-8 border border-white/5 "><h2 class="text-3xl font-bold text-white mb-2">Support</h2><p class="text-gray-500 mb-8">Create a support ticket and our team will get back to you.</p><div class="grid grid-cols-1 lg:grid-cols-3 gap-8"><div class="lg:col-span-1 space-y-6">{{if .IsAdmin}}<div class="bg-white/5 rounded-xl p-4 border border-white/5 h-[500px] overflow-y-auto"><h3 class="text-xs font-bold text-gray-400 uppercase mb-4 tracking-widest">All Tickets</h3>{{range .Tickets}}<a href="/support?ticket={{.ID}}" class="block p-3 rounded-lg mb-2 hover:bg-white/5 transition border border-white/5 {{if eq $.CurrentTicket.ID .ID}}bg-white/10 border-indigo-500/50{{end}}"><div class="flex justify-between items-start mb-1"><span class="text-white font-bold text-sm">{{.Subject}}</span><span class="text-[10px] text-gray-500">{{.Status}}</span></div><div class="text-xs text-gray-400 truncate">{{.Category}} | {{.ID}}</div></a>{{end}}</div>{{else}}<div class="bg-white/5 rounded-xl p-6 border border-white/5"><h3 class="text-sm font-bold text-white mb-4 flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg> Create Ticket</h3><form action="/api/ticket/create" method="POST" class="space-y-4" data-disable-submit><input type="hidden" name="csrf_token" value="{{.CsrfToken}}"><div><label class="text-xs text-gray-500 block mb-1">Category</label><select name="category" class="w-full glass-input p-2 rounded-lg text-sm bg-black"><option>Billing</option><option>Technical</option><option>Sales</option></select></div><div><label class="text-xs text-gray-500 block mb-1">Subject</label><input name="subject" class="w-full glass-input p-2 rounded-lg text-sm" placeholder="Brief description"><p class="text-[10px] text-gray-500 mt-1">Include your plan name or invoice ID if relevant.</p></div><div><label class="text-xs text-gray-500 block mb-1">Message</label><textarea name="message" class="w-full glass-input p-2 rounded-lg text-sm h-24" placeholder="Details..."></textarea><p class="text-[10px] text-gray-500 mt-1">Share steps or screenshots for faster help.</p></div><button class="w-full bg-white text-black font-bold py-2 rounded-lg text-sm hover:bg-gray-200" data-loading-text="Submitting...">Submit Ticket</button></form></div><div class="bg-white/5 rounded-xl p-4 border border-white/5 mt-6"><h3 class="text-xs font-bold text-gray-400 uppercase mb-2">My Tickets</h3>{{if .Tickets}}{{range .Tickets}}<a href="/support?ticket={{.ID}}" class="block p-2 rounded mb-1 hover:bg-white/5 text-sm text-gray-300 flex justify-between"><span>{{.Subject}}</span><span class="text-xs text-gray-500">{{.Status}}</span></a>{{end}}{{else}}<div class="text-xs text-gray-500">No tickets yet. Start one above.</div>{{end}}</div>{{end}}</div><div class="lg:col-span-2  rounded-xl border border-white/5 flex flex-col h-[600px] relative overflow-hidden">{{if .CurrentTicket.ID}}<div class="p-4 border-b border-white/5 bg-white/5 flex justify-between items-center"><div><h3 class="text-white font-bold">{{.CurrentTicket.Subject}}</h3><span class="text-xs text-gray-500">ID: {{.CurrentTicket.ID}} • {{.CurrentTicket.Category}}</span></div><div class="px-3 py-1 rounded bg-indigo-500/20 text-indigo-400 text-xs font-bold">{{.CurrentTicket.Status}}</div></div><div class="flex-1 overflow-y-auto p-4 space-y-4">{{range .CurrentTicket.Messages}}<div class="flex {{if eq .Sender $.Username}}justify-end{{else}}justify-start{{end}}"><div class="max-w-[70%] p-3 rounded-2xl {{if .IsAdmin}}bg-indigo-600 text-white{{else if eq .Sender $.Username}}bg-white/10 text-gray-200{{else}}bg-gray-800 text-gray-300{{end}}"><div class="text-xs opacity-50 mb-1 flex justify-between gap-4"><span>{{.Sender}}</span><span>{{.Time}}</span></div><p class="text-sm leading-relaxed">{{.Content}}</p></div></div>{{end}}</div><div class="p-4 border-t border-white/5 bg-white/5"><form action="/api/ticket/reply" method="POST" class="flex gap-2" data-disable-submit><input type="hidden" name="csrf_token" value="{{.CsrfToken}}"><input type="hidden" name="id" value="{{.CurrentTicket.ID}}"><input name="message" class="flex-1 glass-input rounded-xl px-4 py-3 text-sm focus:ring-0 border-white/10 bg-black" placeholder="Type your reply..."><button class="bg-white text-black p-3 rounded-xl hover:bg-gray-200 transition" data-loading-text="Sending..."><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg></button></form></div>{{else}}<div class="flex-1 flex flex-col items-center justify-center text-gray-600"><svg class="w-16 h-16 mb-4 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg><p>Select a ticket to view conversation</p></div>{{end}}</div></div></div></div></main></div><script>function showToast(m,t='success'){const c=document.getElementById('toast-container');const d=document.createElement('div');d.className=`pointer-events-auto glass-panel p-4 rounded-xl border flex items-center gap-3 shadow-2xl toast-enter border-white/10 transform translate-x-4 bg-[#111]`;d.innerHTML=`<span class="font-bold text-sm tracking-wide uppercase text-white">${m}</span>`;c.appendChild(d);setTimeout(()=>d.classList.remove('toast-enter'),10);setTimeout(()=>{d.classList.add('toast-exit-active');setTimeout(()=>d.remove(),300)},4000);} document.querySelectorAll('form[data-disable-submit]').forEach((form)=>{form.addEventListener('submit',()=>{const btn=form.querySelector('button[type=\"submit\"], button:not([type])');if(!btn)return;const loadingText=btn.getAttribute('data-loading-text')||'Processing...';btn.setAttribute('data-original-text',btn.textContent);btn.textContent=loadingText;btn.disabled=true;btn.classList.add('opacity-70','cursor-not-allowed');});}); const params = new URLSearchParams(window.location.search); if(params.get('welcome')) showToast('Welcome back, Commander.');</script></body></html>

@@ -356,6 +356,28 @@ func generateID() string {
 	return fmt.Sprintf("%d", n.Int64()+10000)
 }
 func getUptime() string { return time.Since(startTime).String() }
+func formatUptime(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	days := d / (24 * time.Hour)
+	d -= days * 24 * time.Hour
+	hours := d / time.Hour
+	d -= hours * time.Hour
+	minutes := d / time.Minute
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
+	}
+	if hours > 0 {
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	}
+	return fmt.Sprintf("%dm", minutes)
+}
+
+func formatBytes(bytes uint64) string {
+	const unit = 1024 * 1024
+	return fmt.Sprintf("%.2f MB", float64(bytes)/unit)
+}
 func getPlanConfig(n string) PlanConfig {
 	var p PlanConfig
 	if err := db.QueryRow("SELECT concurrents, max_time, vip, api FROM plans WHERE name=?", n).Scan(&p.Concurrents, &p.MaxTime, &p.VIP, &p.API); err != nil {
