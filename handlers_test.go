@@ -954,6 +954,75 @@ func TestCreateDepositIdempotent(t *testing.T) {
 	}
 }
 
+func TestCreateDepositUsesAvailableWallets(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO wallets (address, private_key, status, assigned_to) VALUES ('T123', 'key', '', '')"); err != nil {
+		t.Fatalf("insert wallet: %v", err)
+	}
+	cfg.BinanceAPI = "http://127.0.0.1:1"
+	lastKnownTrxPrice = 0.2
+
+	sess := createSession("alice", nil)
+	body := url.Values{
+		"csrf_token": {"csrf-token"},
+		"amount":     {"25"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	rr := httptest.NewRecorder()
+	handleCreateDeposit(rr, req)
+
+	if rr.Result().StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", rr.Result().StatusCode)
+	}
+	if loc := rr.Result().Header.Get("Location"); !strings.Contains(loc, "/deposit/pay?id=") {
+		t.Fatalf("expected pay redirect, got %q", loc)
+	}
+	var status string
+	if err := db.QueryRow("SELECT status FROM wallets WHERE address='T123'").Scan(&status); err != nil {
+		t.Fatalf("query wallet: %v", err)
+	}
+	if status != "Busy" {
+		t.Fatalf("expected wallet to be busy, got %q", status)
+	}
+}
+
+func TestCreateDepositFailsWhenWalletsUnavailable(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO wallets (address, private_key, status, assigned_to) VALUES ('T123', 'key', 'Busy', 'dep1')"); err != nil {
+		t.Fatalf("insert wallet: %v", err)
+	}
+	cfg.BinanceAPI = "http://127.0.0.1:1"
+	lastKnownTrxPrice = 0.2
+
+	sess := createSession("alice", nil)
+	body := url.Values{
+		"csrf_token": {"csrf-token"},
+		"amount":     {"25"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	rr := httptest.NewRecorder()
+	handleCreateDeposit(rr, req)
+
+	if rr.Result().StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", rr.Result().StatusCode)
+	}
+	if loc := rr.Result().Header.Get("Location"); loc != "/deposit?err=wallets" {
+		t.Fatalf("expected wallets error, got %q", loc)
+	}
+}
+
 func TestPurchaseIdempotent(t *testing.T) {
 	setupTestDB(t)
 	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('buyer', 'x', 'Free', 'Active', 'tok', 'u#2', 50, 'ref', '', 0, 0)"); err != nil {

@@ -77,6 +77,8 @@ func initDB() {
 	db.Exec("ALTER TABLE users ADD COLUMN ref_earnings REAL DEFAULT 0;")
 	db.Exec("ALTER TABLE users ADD COLUMN ref_paid INTEGER DEFAULT 0;")
 	db.Exec("ALTER TABLE methods ADD COLUMN layer TEXT;")
+	db.Exec("ALTER TABLE wallets ADD COLUMN status TEXT;")
+	db.Exec("ALTER TABLE wallets ADD COLUMN assigned_to TEXT;")
 	// Session metadata
 	db.Exec("ALTER TABLE sessions ADD COLUMN created_at INTEGER;")
 	db.Exec("ALTER TABLE sessions ADD COLUMN last_seen INTEGER;")
@@ -85,6 +87,18 @@ func initDB() {
 	db.Exec("UPDATE deposits SET usd_amount = amount * 0.20 WHERE (usd_amount IS NULL OR usd_amount = 0) AND amount > 0")
 	db.Exec("UPDATE users SET plan='Free' WHERE plan IS NULL OR plan=''")
 	db.Exec("UPDATE methods SET layer='layer4' WHERE layer IS NULL OR layer=''")
+	db.Exec("UPDATE wallets SET assigned_to='' WHERE assigned_to IS NULL")
+	db.Exec(`
+		UPDATE wallets
+		SET status = CASE
+			WHEN status IS NULL OR TRIM(status) = '' THEN
+				CASE
+					WHEN assigned_to IS NULL OR TRIM(assigned_to) = '' THEN 'Free'
+					ELSE 'Busy'
+				END
+			ELSE status
+		END
+	`)
 
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_deposits_user_id ON deposits(user_id);")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);")
