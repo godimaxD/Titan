@@ -9,10 +9,7 @@ const sessionCookieName = "sess"
 
 func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, maxAge int) {
 	// Allow local development over HTTP (otherwise Secure cookies won't be sent).
-	secure := true
-	if r != nil && r.TLS == nil {
-		secure = false
-	}
+	secure := isSecureRequest(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,

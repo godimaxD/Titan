@@ -105,6 +105,7 @@
     </header>
 
     <div class="p-6 md:p-10 overflow-y-auto h-full pb-32 md:pb-10 no-scrollbar w-full" x-data="profileApp()" x-init="init()">
+        <div id="inline-alert" class="hidden mb-6 rounded-2xl border px-4 py-3 text-sm font-semibold"></div>
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
             <!-- LEFT: USER CARD -->
             <div class="glass-panel p-8 rounded-3xl lg:col-span-1 text-center border-t border-white/10">
@@ -157,6 +158,7 @@
                             <input type="password" class="glass-input px-4 py-3 rounded-xl" placeholder="New (min 8)" x-model="pwd.next">
                             <input type="password" class="glass-input px-4 py-3 rounded-xl" placeholder="Confirm" x-model="pwd.confirm">
                         </div>
+                        <div class="text-[10px] text-gray-500 mt-2">Use at least 8 characters and avoid reusing old passwords.</div>
                         <div class="mt-3 flex justify-end">
                             <button class="px-5 py-3 rounded-xl bg-white/10 border border-white/10 font-bold hover:bg-white/15" @click="changePassword()">UPDATE PASSWORD</button>
                         </div>
@@ -236,6 +238,19 @@ function showToast(m,t='success'){
     setTimeout(()=>{d.classList.add('toast-exit-active');setTimeout(()=>d.remove(),300)},4000);
 }
 
+function showInlineAlert(message, type='info'){
+    const el = document.getElementById('inline-alert');
+    if (!el) return;
+    const styles = {
+        success: 'border-green-500/30 bg-green-500/10 text-green-200',
+        error: 'border-red-500/30 bg-red-500/10 text-red-200',
+        info: 'border-blue-500/30 bg-blue-500/10 text-blue-200',
+    };
+    el.className = `mb-6 rounded-2xl border px-4 py-3 text-sm font-semibold ${styles[type] || styles.info}`;
+    el.textContent = message;
+    el.classList.remove('hidden');
+}
+
 const csrfToken = '{{.CsrfToken}}';
 
 function profileApp(){
@@ -277,27 +292,27 @@ function profileApp(){
             if(!token) return;
             try{
                 const r = await fetch('/api/user/sessions/revoke', {method:'POST', headers:{'Content-Type':'application/json', 'X-CSRF-Token': csrfToken}, body: JSON.stringify({token})});
-                if(r.ok){ showToast('Session Revoked'); this.fetchSessions(); }
-                else { showToast('Failed','error'); }
-            }catch(e){ showToast('Connection Error','error'); }
+                if(r.ok){ showToast('Session Revoked'); showInlineAlert('Session revoked successfully.','success'); this.fetchSessions(); }
+                else { const j = await r.json().catch(()=>({error:'Failed'})); showInlineAlert(j.error || 'Failed','error'); showToast('Failed','error'); }
+            }catch(e){ showInlineAlert('Connection error. Please retry.','error'); showToast('Connection Error','error'); }
         },
         async revokeAllSessions(){
             try{
                 const r = await fetch('/api/user/sessions/revoke-all', {method:'POST', headers:{'X-CSRF-Token': csrfToken}});
-                if(r.ok){ showToast('Other Sessions Revoked'); this.fetchSessions(); }
-                else { showToast('Failed','error'); }
-            }catch(e){ showToast('Connection Error','error'); }
+                if(r.ok){ showToast('Other Sessions Revoked'); showInlineAlert('Other sessions revoked.','success'); this.fetchSessions(); }
+                else { const j = await r.json().catch(()=>({error:'Failed'})); showInlineAlert(j.error || 'Failed','error'); showToast('Failed','error'); }
+            }catch(e){ showInlineAlert('Connection error. Please retry.','error'); showToast('Connection Error','error'); }
         },
         async rotateToken(){
             if(!confirm('Regenerate API token? Old token will stop working.')) return;
             try{
                 const r = await fetch('/api/user/token/rotate', {method:'POST', headers:{'X-CSRF-Token': csrfToken}});
-                if(!r.ok){ showToast('Failed','error'); return; }
+                if(!r.ok){ const j = await r.json().catch(()=>({error:'Failed'})); showInlineAlert(j.error || 'Failed','error'); showToast('Failed','error'); return; }
                 const j = await r.json();
                 this.currentToken = j.token;
                 this.showToken = true;
-                showToast('Token Regenerated');
-            }catch(e){ showToast('Connection Error','error'); }
+                showToast('Token Regenerated'); showInlineAlert('API token regenerated successfully.','success');
+            }catch(e){ showInlineAlert('Connection error. Please retry.','error'); showToast('Connection Error','error'); }
         },
         async changePassword(){
             try{
@@ -305,11 +320,13 @@ function profileApp(){
                 if(r.ok){
                     this.pwd = {current:'', next:'', confirm:''};
                     showToast('Password Updated');
+                    showInlineAlert('Password updated successfully.','success');
                 } else {
-                    const t = await r.text();
-                    showToast(t || 'Failed','error');
+                    const j = await r.json().catch(()=>({error:'Failed'}));
+                    showInlineAlert(j.error || 'Failed','error');
+                    showToast(j.error || 'Failed','error');
                 }
-            }catch(e){ showToast('Connection Error','error'); }
+            }catch(e){ showInlineAlert('Connection error. Please retry.','error'); showToast('Connection Error','error'); }
         },
         async fetchLimits(){
             // Best-effort: re-use methods JSON already loaded server side; limits are not provided directly.

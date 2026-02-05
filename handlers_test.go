@@ -42,6 +42,7 @@ func setupTestDB(t *testing.T) {
 		);`,
 		`CREATE TABLE methods (name TEXT PRIMARY KEY, layer TEXT, command TEXT, enabled BOOLEAN DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`,
 		`CREATE TABLE blacklist (target TEXT PRIMARY KEY, reason TEXT, date TEXT);`,
+		`CREATE TABLE idempotency_keys (key TEXT PRIMARY KEY, user_id TEXT, action TEXT, reference_id TEXT, created_at INTEGER);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {
@@ -113,7 +114,7 @@ func TestHandlePurchaseSuccess(t *testing.T) {
 	if rr.Result().StatusCode != http.StatusFound {
 		t.Fatalf("expected redirect, got %d", rr.Result().StatusCode)
 	}
-	if loc := rr.Result().Header.Get("Location"); loc != "/dashboard?msg=success" {
+	if loc := rr.Result().Header.Get("Location"); loc != "/dashboard?msg=plan_activated" {
 		t.Fatalf("unexpected redirect location: %q", loc)
 	}
 }
@@ -524,6 +525,160 @@ func TestRegisterRejectsBadReferral(t *testing.T) {
 	}
 	if loc := rr.Result().Header.Get("Location"); loc != "/register?err=bad_ref" {
 		t.Fatalf("unexpected redirect: %q", loc)
+	}
+}
+
+func TestCreateDepositIdempotent(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO wallets (address, private_key, status, assigned_to) VALUES ('T123', 'key', 'Free', '')"); err != nil {
+		t.Fatalf("insert wallet: %v", err)
+	}
+	cfg.BinanceAPI = "http://127.0.0.1:1"
+	lastKnownTrxPrice = 0.2
+
+	sess := createSession("alice", nil)
+	body := url.Values{
+		"csrf_token": {"csrf-token"},
+		"amount":     {"25"},
+		"request_id": {"req-1"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	rr := httptest.NewRecorder()
+	handleCreateDeposit(rr, req)
+
+	if rr.Result().StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", rr.Result().StatusCode)
+	}
+	loc := rr.Result().Header.Get("Location")
+	if !strings.Contains(loc, "/deposit/pay?id=") {
+		t.Fatalf("expected pay redirect, got %q", loc)
+	}
+	id := strings.TrimPrefix(strings.Split(loc, "&")[0], "/deposit/pay?id=")
+
+	req2 := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req2.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req2.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	rr2 := httptest.NewRecorder()
+	handleCreateDeposit(rr2, req2)
+
+	if rr2.Result().StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", rr2.Result().StatusCode)
+	}
+	loc2 := rr2.Result().Header.Get("Location")
+	if !strings.Contains(loc2, id) {
+		t.Fatalf("expected same deposit id redirect, got %q", loc2)
+	}
+
+	var count int
+	if err := db.QueryRow("SELECT count(*) FROM deposits WHERE user_id='alice'").Scan(&count); err != nil {
+		t.Fatalf("count deposits: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 deposit, got %d", count)
+	}
+}
+
+func TestPurchaseIdempotent(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('buyer', 'x', 'Free', 'Active', 'tok', 'u#2', 50, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO products (id, name, price, time, concurrents, vip, api_access) VALUES (1, 'Pro', 10, 60, 1, 0, 0)"); err != nil {
+		t.Fatalf("insert product: %v", err)
+	}
+
+	sess := createSession("buyer", nil)
+	body := url.Values{
+		"csrf_token": {"csrf-token"},
+		"request_id": {"purchase-1"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/api/market/purchase?id=1", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	rr := httptest.NewRecorder()
+	handlePurchase(rr, req)
+
+	req2 := httptest.NewRequest(http.MethodPost, "/api/market/purchase?id=1", strings.NewReader(body))
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req2.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req2.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	rr2 := httptest.NewRecorder()
+	handlePurchase(rr2, req2)
+
+	if rr2.Result().StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", rr2.Result().StatusCode)
+	}
+	if loc := rr2.Result().Header.Get("Location"); !strings.Contains(loc, "err=duplicate") {
+		t.Fatalf("expected duplicate redirect, got %q", loc)
+	}
+
+	var balance float64
+	if err := db.QueryRow("SELECT balance FROM users WHERE username='buyer'").Scan(&balance); err != nil {
+		t.Fatalf("query balance: %v", err)
+	}
+	if balance != 40 {
+		t.Fatalf("expected balance 40, got %.2f", balance)
+	}
+}
+
+func TestCreateTicketRequestTooLarge(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	sess := createSession("alice", nil)
+
+	largeMessage := strings.Repeat("a", maxBodySize*2)
+	body := url.Values{
+		"csrf_token": {"csrf-token"},
+		"subject":    {"Help"},
+		"category":   {"Billing"},
+		"message":    {largeMessage},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/api/ticket/create", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if int64(len(body)) <= maxBodySize {
+		req.ContentLength = maxBodySize + 1
+	} else {
+		req.ContentLength = int64(len(body))
+	}
+	if req.ContentLength <= maxBodySize {
+		t.Fatalf("expected content length > max, got %d", req.ContentLength)
+	}
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	rr := httptest.NewRecorder()
+	handleCreateTicket(rr, req)
+
+	if rr.Result().StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413, got %d", rr.Result().StatusCode)
+	}
+}
+
+func TestSupportEmptyStateRenders(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	sess := createSession("alice", nil)
+	req := httptest.NewRequest(http.MethodGet, "/support", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	rr := httptest.NewRecorder()
+	handlePage("support.html")(rr, req)
+
+	if rr.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected ok, got %d", rr.Result().StatusCode)
+	}
+	if !strings.Contains(rr.Body.String(), "No tickets yet.") {
+		t.Fatalf("expected empty state message")
 	}
 }
 

@@ -58,23 +58,32 @@
             <p class="text-gray-500 text-xs font-mono uppercase tracking-widest">Access Application Protocol</p>
         </div>
 
-        <form action="/register" method="POST" class="space-y-4">
+        {{if .FlashMessage}}
+        <div class="mb-4 rounded-xl border px-4 py-3 text-xs font-bold {{if eq .FlashType "success"}}bg-green-500/10 border-green-500/40 text-green-300{{else if eq .FlashType "info"}}bg-blue-500/10 border-blue-500/40 text-blue-300{{else}}bg-red-500/10 border-red-500/40 text-red-300{{end}}">
+            {{.FlashMessage}}
+        </div>
+        {{end}}
+
+        <form action="/register" method="POST" class="space-y-4" data-disable-submit>
             <input type="hidden" name="csrf_token" value="{{.CsrfToken}}">
 
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label class="block text-[10px] font-bold uppercase text-gray-500 mb-1 ml-1">Username</label>
                     <input name="username" required class="input-field w-full px-4 py-3 rounded-xl text-sm font-bold" placeholder="Username">
+                    <p class="text-[10px] text-gray-500 mt-1">3–24 characters, letters and numbers recommended.</p>
                 </div>
                 <div>
                     <label class="block text-[10px] font-bold uppercase text-gray-500 mb-1 ml-1">Referral</label>
                     <input name="ref" class="input-field w-full px-4 py-3 rounded-xl text-sm font-bold" placeholder="Invite Code">
+                    <p class="text-[10px] text-gray-500 mt-1">Optional. Leave blank if you don’t have one.</p>
                 </div>
             </div>
             
             <div>
                 <label class="block text-[10px] font-bold uppercase text-gray-500 mb-1 ml-1">Password</label>
                 <input type="password" name="password" required class="input-field w-full px-4 py-3 rounded-xl text-sm font-bold" placeholder="••••••">
+                <p class="text-[10px] text-gray-500 mt-1">Use at least 8 characters.</p>
             </div>
 
             <!-- CAPTCHA -->
@@ -119,17 +128,16 @@
                 .catch(() => img.style.opacity = '1');
         }
         
-        // Error Handler
-        const params = new URLSearchParams(window.location.search);
-        const err = params.get('err');
-        if(err) {
-            const msg = err === 'taken' ? 'Username Unavailable' : err === 'bad_ref' ? 'Invalid Referral Code' : 'Security Check Failed';
-            const d = document.createElement('div');
-            d.className = 'fixed top-6 bg-red-500/10 border border-red-500/50 text-red-400 px-6 py-3 rounded-xl text-xs font-bold shadow-xl backdrop-blur-md animate-bounce';
-            d.innerText = msg;
-            document.body.appendChild(d);
-            setTimeout(()=>d.remove(), 3000);
-        }
+        document.querySelectorAll('form[data-disable-submit]').forEach((form) => {
+            form.addEventListener('submit', () => {
+                const btn = form.querySelector('button[type="submit"], button:not([type])');
+                if (!btn) return;
+                btn.setAttribute('data-original-text', btn.textContent);
+                btn.textContent = 'Creating...';
+                btn.disabled = true;
+                btn.classList.add('opacity-70', 'cursor-not-allowed');
+            });
+        });
     </script>
 </body>
 </html>
