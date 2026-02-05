@@ -155,7 +155,7 @@ type PageData struct {
 	StatusMemAlloc                                                             string
 	StatusMemSys                                                               string
 	StatusActiveAttacksAvailable                                               bool
-	UseTokenLogin                                                              bool
+	LoginMode                                                                  string
 }
 
 type InvoiceData struct {

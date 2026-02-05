@@ -108,13 +108,17 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	setSecurityHeaders(w)
 	token := ensureCSRFCookie(w, r)
-	useTokenLogin := r.URL.Query().Get("mode") == "token"
+	loginMode := "login"
+	switch r.URL.Query().Get("mode") {
+	case "token", "redeem":
+		loginMode = r.URL.Query().Get("mode")
+	}
 	msg, msgType := flashMessageFromQuery(r)
 	renderTemplate(w, "login.html", PageData{
-		CsrfToken:     token,
-		FlashMessage:  msg,
-		FlashType:     msgType,
-		UseTokenLogin: useTokenLogin,
+		CsrfToken:    token,
+		FlashMessage: msg,
+		FlashType:    msgType,
+		LoginMode:    loginMode,
 	})
 }
 
@@ -1295,7 +1299,9 @@ func flashMessageFromQuery(r *http.Request) (string, string) {
 		case "csrf":
 			return "Security token expired. Please retry the form.", "error"
 		case "invalid_code":
-			return "Invalid access token. Please check and try again.", "error"
+			return "Invalid redeem code. Please check and try again.", "error"
+		case "code_used":
+			return "That redeem code has already been used.", "error"
 		case "invalid_token":
 			return "Invalid API token. Please check and try again.", "error"
 		case "taken":
@@ -2518,29 +2524,30 @@ func apiLaunch(w http.ResponseWriter, r *http.Request) {
 
 func handleRedeemLogin(w http.ResponseWriter, r *http.Request) {
 	if isRateLimited(getIP(r)) {
-		http.Error(w, "Rate Limit", http.StatusTooManyRequests)
+		http.Redirect(w, r, "/login?err=rate_limit&mode=redeem", http.StatusFound)
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Redirect(w, r, "/login", http.StatusFound)
+		http.Redirect(w, r, "/login?mode=redeem", http.StatusFound)
 		return
 	}
 	// CSRF validation (same as login/register)
 	if !validateCSRF(r) {
-		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
+		http.Redirect(w, r, "/login?err=csrf&mode=redeem", http.StatusFound)
 		return
 	}
 
-	code := Sanitize(r.FormValue("code"))
+	code := Sanitize(r.FormValue("redeem_code"))
 	if code == "" {
-		http.Redirect(w, r, "/login?err=invalid_code", http.StatusFound)
+		http.Redirect(w, r, "/login?err=invalid_code&mode=redeem", http.StatusFound)
 		return
 	}
 
 	var plan string
+	var used bool
 	tx, err := db.Begin()
 	if err != nil {
-		http.Redirect(w, r, "/login?err=1", http.StatusFound)
+		http.Redirect(w, r, "/login?err=1&mode=redeem", http.StatusFound)
 		return
 	}
 	committed := false
@@ -2549,14 +2556,18 @@ func handleRedeemLogin(w http.ResponseWriter, r *http.Request) {
 			_ = tx.Rollback()
 		}
 	}()
-	if err := tx.QueryRow("SELECT plan FROM redeem_codes WHERE code=? AND used=0", code).Scan(&plan); err != nil {
+	if err := tx.QueryRow("SELECT plan, used FROM redeem_codes WHERE code=?", code).Scan(&plan, &used); err != nil {
 		LogActivity(r, ActivityLogEntry{
 			ActorType: actorTypeUser,
 			Action:    "AUTH_REDEEM_FAILED",
 			Severity:  severityWarn,
 			Message:   "Redeem login failed due to invalid code.",
 		})
-		http.Redirect(w, r, "/login?err=invalid_code", http.StatusFound)
+		http.Redirect(w, r, "/login?err=invalid_code&mode=redeem", http.StatusFound)
+		return
+	}
+	if used {
+		http.Redirect(w, r, "/login?err=code_used&mode=redeem", http.StatusFound)
 		return
 	}
 	plan = effectivePlanName(plan)
@@ -2567,12 +2578,12 @@ func handleRedeemLogin(w http.ResponseWriter, r *http.Request) {
 	passwd := generateToken()
 	hash, err := generatePasswordHash(passwd)
 	if err != nil {
-		http.Redirect(w, r, "/login?err=1", http.StatusFound)
+		http.Redirect(w, r, "/login?err=1&mode=redeem", http.StatusFound)
 		return
 	}
 	refCode, err := generateUniqueRefCode()
 	if err != nil {
-		http.Redirect(w, r, "/login?err=1", http.StatusFound)
+		http.Redirect(w, r, "/login?err=1&mode=redeem", http.StatusFound)
 		return
 	}
 	apiTok := generateToken()
@@ -2583,7 +2594,7 @@ func handleRedeemLogin(w http.ResponseWriter, r *http.Request) {
 		// Try one more time
 		username = "redeem-" + generateID()
 		if _, err2 := tx.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, ?, 'Active', ?, ?, 0.0, ?, '', 0.0, 0)", username, hash, plan, apiTok, userID, refCode); err2 != nil {
-			http.Redirect(w, r, "/login?err=1", http.StatusFound)
+			http.Redirect(w, r, "/login?err=1&mode=redeem", http.StatusFound)
 			return
 		}
 	}
@@ -2591,23 +2602,23 @@ func handleRedeemLogin(w http.ResponseWriter, r *http.Request) {
 	// Mark code used only after user has been created
 	res, err := tx.Exec("UPDATE redeem_codes SET used=1 WHERE code=? AND used=0", code)
 	if err != nil {
-		http.Redirect(w, r, "/login?err=1", http.StatusFound)
+		http.Redirect(w, r, "/login?err=1&mode=redeem", http.StatusFound)
 		return
 	}
 	affected, err := res.RowsAffected()
 	if err != nil || affected == 0 {
-		http.Redirect(w, r, "/login?err=invalid_code", http.StatusFound)
+		http.Redirect(w, r, "/login?err=code_used&mode=redeem", http.StatusFound)
 		return
 	}
 	if err := tx.Commit(); err != nil {
-		http.Redirect(w, r, "/login?err=1", http.StatusFound)
+		http.Redirect(w, r, "/login?err=1&mode=redeem", http.StatusFound)
 		return
 	}
 	committed = true
 
 	token := createSession(username, r)
 	if token == "" {
-		http.Redirect(w, r, "/login?err=session", http.StatusFound)
+		http.Redirect(w, r, "/login?err=session&mode=redeem", http.StatusFound)
 		return
 	}
 	setSessionCookie(w, r, token, 86400)

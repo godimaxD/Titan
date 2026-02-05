@@ -122,7 +122,7 @@
                     <div class="text-[10px] text-gray-500 font-bold uppercase mb-2">Referral Link</div>
                     <div class="bg-black/30 border border-white/10 rounded-xl p-3 flex items-center justify-between gap-3">
                         <code class="font-mono text-xs text-indigo-300 break-all truncate" id="refLink">/register?ref={{.RefCode}}</code>
-                        <button class="px-3 py-2 rounded-lg border border-white/10 text-xs font-bold hover:bg-white/10" @click="copyReferral()">COPY</button>
+                        <button class="px-3 py-2 rounded-lg border border-white/10 text-xs font-bold hover:bg-white/10" type="button" data-copy-target="refLink">COPY</button>
                     </div>
                 </div>
 
@@ -139,9 +139,9 @@
                     <div class="md:col-span-2">
                         <h3 class="text-sm font-bold text-gray-400 uppercase tracking-widest mb-3">API Token</h3>
                         <div class="bg-black/30 border border-white/10 rounded-xl p-4 flex items-center justify-between gap-3">
-                            <code class="font-mono text-sm text-indigo-300 break-all cursor-pointer" :class="showToken ? '' : 'filter blur-[4px]'" @click="toggleToken()" x-text="currentToken">{{.ApiToken}}</code>
+                            <code class="font-mono text-sm text-indigo-300 break-all cursor-pointer" id="api-token-value" :class="showToken ? '' : 'filter blur-[4px]'" @click="toggleToken()" x-text="currentToken">{{.ApiToken}}</code>
                             <div class="flex gap-2">
-                                <button class="px-3 py-2 rounded-lg border border-white/10 text-xs font-bold hover:bg-white/10" @click="copyToken()">COPY</button>
+                                <button class="px-3 py-2 rounded-lg border border-white/10 text-xs font-bold hover:bg-white/10" type="button" data-copy-target="api-token-value">COPY</button>
                                 <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-500" @click="rotateToken()">REGENERATE</button>
                             </div>
                         </div>
@@ -265,15 +265,6 @@ function profileApp(){
             this.fetchLimits();
         },
         toggleToken(){ this.showToken = !this.showToken; },
-        async copyToken(){
-            await navigator.clipboard.writeText(this.currentToken);
-            showToast('Token Copied');
-        },
-        async copyReferral(){
-            const link = (location.origin || '') + '/register?ref={{.RefCode}}';
-            await navigator.clipboard.writeText(link);
-            showToast('Referral Link Copied');
-        },
         fmtTime(ts){
             if(!ts || ts===0) return 'N/A';
             const d = new Date(ts*1000);
@@ -304,7 +295,7 @@ function profileApp(){
         async rotateToken(){
             if(!confirm('Regenerate API token? Old token will stop working.')) return;
             try{
-                const r = await fetch('/api/user/token/rotate', {method:'POST', headers:{'X-CSRF-Token': csrfToken}});
+                const r = await fetch('/api/user/token/rotate', {method:'POST', headers:{'X-CSRF-Token': csrfToken}, credentials:'same-origin'});
                 if(!r.ok){ const j = await r.json().catch(()=>({error:'Failed'})); showInlineAlert(j.error || 'Failed','error'); showToast('Failed','error'); return; }
                 const j = await r.json();
                 this.currentToken = j.token;
@@ -334,5 +325,63 @@ function profileApp(){
         }
     }
 }
+
+async function copyTextWithFallback(text){
+    if(!text) return false;
+    if(navigator.clipboard && window.isSecureContext){
+        try{
+            await navigator.clipboard.writeText(text);
+            return true;
+        }catch(e){}
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly','');
+    textarea.style.position = 'absolute';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    let ok = false;
+    try{
+        ok = document.execCommand('copy');
+    }catch(e){
+        ok = false;
+    }
+    document.body.removeChild(textarea);
+    return ok;
+}
+
+function showCopyFeedback(button){
+    if(!button) return;
+    const original = button.textContent;
+    button.textContent = 'Copied!';
+    setTimeout(()=>{ button.textContent = original; }, 1000);
+}
+
+document.querySelectorAll('[data-copy-target],[data-copy-value]').forEach((button)=>{
+    button.addEventListener('click', async () => {
+        const value = button.getAttribute('data-copy-value');
+        const targetId = button.getAttribute('data-copy-target');
+        let text = value;
+        if(!text && targetId){
+            const target = document.getElementById(targetId);
+            if(target){
+                if('value' in target && typeof target.value === 'string'){
+                    text = target.value;
+                } else {
+                    text = target.textContent;
+                }
+            }
+        }
+        text = text ? text.trim() : '';
+        const ok = await copyTextWithFallback(text);
+        if(ok){
+            showCopyFeedback(button);
+            showToast('Copied!');
+        }else{
+            showInlineAlert('Copy failed. Please try again.','error');
+        }
+    });
+});
 </script>
 </body></html>
