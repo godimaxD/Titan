@@ -1,6 +1,7 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
+    {{template "theme_script"}}
     <title>Deposit Funds | TITAN</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,19 +9,7 @@
     <script src="//unpkg.com/alpinejs" defer></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
     <!-- THEME LOGIC -->
-    <script>
-        if (localStorage.theme === 'light') document.documentElement.classList.remove('dark');
-        else document.documentElement.classList.add('dark');
-        function toggleTheme() {
-            if (document.documentElement.classList.contains('dark')) {
-                document.documentElement.classList.remove('dark');
-                localStorage.theme = 'light';
-            } else {
-                document.documentElement.classList.add('dark');
-                localStorage.theme = 'dark';
-            }
-        }
-    </script>
+    
     <style>
         /* CORE TRANSITIONS */
         body, aside, div, span, p, h1, h2, h3, h4, h5, h6, input, button { 
@@ -29,26 +18,28 @@
         }
 
         /* LIGHT MODE */
-        body { background: linear-gradient(135deg, #CCCCFF 0%, #7DF9FF 100%) !important; background-attachment: fixed; color: #000000; }
-        .glass-panel { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(20px); border: 1px solid #000000; box-shadow: 8px 8px 0px rgba(0,0,0,0.15); }
-        .glass-input { background: #ffffff; border: 2px solid #000000; color: #000000; font-weight: 600; }
-        .glass-btn { background: #000000; color: #ffffff; font-weight: 800; border: 2px solid #000000; }
-        .glass-btn:hover { opacity: 0.8; }
+        :root:not([data-theme="dark"]) body { background: linear-gradient(135deg, var(--bg) 0%, var(--bg-alt) 100%) !important; background-attachment: fixed; color: var(--text); }
+        :root:not([data-theme="dark"]) .glass-panel { background: var(--card); backdrop-filter: blur(20px); border: 1px solid var(--border); box-shadow: var(--shadow); }
+        :root:not([data-theme="dark"]) .glass-input { background: var(--input-bg); border: 1px solid var(--border); color: var(--input-text); font-weight: 600; }
+        :root:not([data-theme="dark"]) .glass-btn { background: var(--text); color: var(--bg); font-weight: 800; border: 1px solid var(--text); }
+        :root:not([data-theme="dark"]) .glass-btn:hover { opacity: 0.9; }
         
         /* DARK MODE */
-        .dark body { background: #020204 !important; color: #EAEAEB; }
-        .dark .glass-panel { background: rgba(20,20,26,0.7); border: 1px solid rgba(255,255,255,0.08); box-shadow: none; }
-        .dark .glass-input { background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.1); color: white; font-weight: normal; }
-        .dark .glass-btn { background: linear-gradient(180deg,rgba(255,255,255,0.1),rgba(255,255,255,0.05)); border: 1px solid rgba(255,255,255,0.2); color: white; }
-        .dark .glass-btn:hover { background: rgba(255,255,255,0.15); }
+        :root[data-theme="dark"] body { background: var(--bg) !important; color: var(--text); }
+        :root[data-theme="dark"] .glass-panel { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); }
+        :root[data-theme="dark"] .glass-input { background: var(--input-bg); border: 1px solid var(--border); color: var(--input-text); font-weight: normal; }
+        :root[data-theme="dark"] .glass-btn { background: linear-gradient(180deg,rgba(255,255,255,0.1),rgba(255,255,255,0.05)); border: 1px solid rgba(255,255,255,0.2); color: white; }
+        :root[data-theme="dark"] .glass-btn:hover { background: rgba(255,255,255,0.15); }
 
         ::-webkit-scrollbar { width: 5px; }
         ::-webkit-scrollbar-thumb { background: #52525b; border-radius: 3px; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         [x-cloak] { display: none !important; }
     </style>
+    {{template "style"}}
 </head>
 <body class="flex h-screen overflow-hidden">
+    {{template "theme_toggle"}}
 
     <!-- MOBILE NAV -->
     <div class="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-[400px]">
@@ -157,10 +148,7 @@
             
             <div class="flex items-center gap-4">
                 <!-- THEME -->
-                <button onclick="toggleTheme()" class="w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200 border bg-white border-gray-300 text-gray-600 hover:bg-gray-100 dark:bg-white/5 dark:border-white/10 dark:text-yellow-400 dark:hover:bg-white/10 mr-2">
-                    <svg class="w-5 h-5 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
-                    <svg class="w-5 h-5 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
-                </button>
+                
                 <div class="hidden md:block text-right">
                     <div class="text-[10px] font-bold uppercase tracking-widest text-black dark:text-white opacity-50">Plan</div>
                     <div class="text-sm font-black text-black dark:text-white">{{.UserPlan}}</div>
@@ -171,7 +159,7 @@
         <!-- SCROLLABLE CONTENT -->
         <div class="p-6 md:p-10 overflow-y-auto h-full pb-32 md:pb-10 no-scrollbar w-full">
             {{if .FlashMessage}}
-            <div class="glass-panel rounded-2xl p-4 mb-6 border {{if eq .FlashType "success"}}border-green-500/30 bg-green-500/10 text-green-200{{else if eq .FlashType "info"}}border-blue-500/30 bg-blue-500/10 text-blue-200{{else}}border-red-500/30 bg-red-500/10 text-red-200{{end}} text-sm font-semibold max-w-6xl mx-auto">
+            <div class="glass-panel rounded-2xl p-4 mb-6 border {{if eq .FlashType "success"}}border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-200{{else if eq .FlashType "info"}}border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-200{{else}}border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-200{{end}} text-sm font-semibold max-w-6xl mx-auto">
                 {{.FlashMessage}}
             </div>
             {{end}}

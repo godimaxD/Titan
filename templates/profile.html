@@ -1,8 +1,6 @@
-<!DOCTYPE html><html lang="en" class="dark"><head><title>Profile | TITAN</title><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><script src="https://cdn.tailwindcss.com"></script><script src="//unpkg.com/alpinejs" defer></script><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <script>
-        if (localStorage.theme === 'light') { document.documentElement.classList.remove('dark'); } else { document.documentElement.classList.add('dark'); }
-        function toggleTheme() { if (document.documentElement.classList.contains('dark')) { document.documentElement.classList.remove('dark'); localStorage.theme = 'light'; } else { document.documentElement.classList.add('dark'); localStorage.theme = 'dark'; } }
-    </script>
+<!DOCTYPE html><html lang="en"><head>
+    {{template "theme_script"}}<title>Profile | TITAN</title><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><script src="https://cdn.tailwindcss.com"></script><script src="//unpkg.com/alpinejs" defer></script><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
     <style>
         body, div, aside, nav, button, input, span, p, h1, h2, h3, table, td, th { transition-property: background-color, color, border-color, box-shadow; transition-duration: 200ms; transition-timing-function: ease-in-out; }
         body { background: linear-gradient(135deg, #CCCCFF 0%, #7DF9FF 100%) !important; background-attachment: fixed !important; color: #111827 !important; }
@@ -33,7 +31,9 @@
         .dark .text-gray-400 { color: #9ca3af !important; }
         [x-cloak] { display: none !important; }
     </style>
+    {{template "style"}}
 </head><body class="flex h-screen overflow-hidden text-white">
+    {{template "theme_toggle"}}
 <div class="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-[400px]">
     <div class="glass-panel px-2 py-3 rounded-2xl flex justify-around items-center shadow-2xl bg-white/90 dark:bg-[#050505]/90 border border-black/5 dark:border-white/10 backdrop-blur-xl transition-all duration-300">
         <a href="/dashboard" class="flex flex-col items-center gap-1 p-2 rounded-xl transition group {{if eq .CurrentPage "dashboard"}}text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-white/5{{else}}text-gray-400 dark:text-gray-500 hover:text-black dark:hover:text-white{{end}}"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg></a>
@@ -97,10 +97,7 @@
     <header class="w-full h-20 flex items-center justify-between px-8 md:px-12 border-b border-white/5 /60 backdrop-blur z-10 sticky top-0">
         <h1 class="text-2xl font-black tracking-tight text-white uppercase">Profile</h1>
         <div class="flex items-center gap-4">
-            <button onclick="toggleTheme()" class="w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200 border bg-white border-gray-300 text-gray-600 hover:bg-gray-100 dark:bg-white/5 dark:border-white/10 dark:text-yellow-400 dark:hover:bg-white/10 mr-2">
-                <svg class="w-5 h-5 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
-                <svg class="w-5 h-5 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
-            </button>
+            
         </div>
     </header>
 
@@ -243,9 +240,9 @@ function showInlineAlert(message, type='info'){
     const el = document.getElementById('inline-alert');
     if (!el) return;
     const styles = {
-        success: 'border-green-500/30 bg-green-500/10 text-green-200',
-        error: 'border-red-500/30 bg-red-500/10 text-red-200',
-        info: 'border-blue-500/30 bg-blue-500/10 text-blue-200',
+        success: 'border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-200',
+        error: 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-200',
+        info: 'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-200',
     };
     el.className = `mb-6 rounded-2xl border px-4 py-3 text-sm font-semibold ${styles[type] || styles.info}`;
     el.textContent = message;

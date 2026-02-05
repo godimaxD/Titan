@@ -1,25 +1,14 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
+    {{template "theme_script"}}
     <title>TITAN | Command Center</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="//unpkg.com/alpinejs" defer></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-    <script>
-        if (localStorage.theme === 'light') document.documentElement.classList.remove('dark');
-        else document.documentElement.classList.add('dark');
-        function toggleTheme() {
-            if (document.documentElement.classList.contains('dark')) {
-                document.documentElement.classList.remove('dark');
-                localStorage.theme = 'light';
-            } else {
-                document.documentElement.classList.add('dark');
-                localStorage.theme = 'dark';
-            }
-        }
-    </script>
+    
     <style>
         body { font-family: 'Inter', sans-serif; transition: background 0.3s, color 0.3s; }
         
@@ -102,8 +91,10 @@
         .terminal-line:last-child { border-bottom: none; }
         .terminal-highlight { background: rgba(99, 102, 241, 0.2); padding: 0 2px; border-radius: 4px; }
     </style>
+    {{template "style"}}
 </head>
 <body class="flex h-screen overflow-hidden">
+    {{template "theme_toggle"}}
 
     <!-- ADMIN SIDEBAR -->
     <aside class="w-64 h-full flex flex-col border-r border-gray-200 dark:border-white/5 bg-white dark:bg-[#08080a] z-50">
@@ -162,10 +153,7 @@
                 <h2 class="text-2xl font-bold dark:text-white text-gray-900 capitalize">{{.CurrentView}}</h2>
                 <p class="text-xs text-gray-500 font-mono mt-1">Admin Session / {{.Uptime}}</p>
             </div>
-            <button onclick="toggleTheme()" class="w-10 h-10 rounded-full bg-white dark:bg-white/5 border border-gray-200 dark:border-white/5 flex items-center justify-center shadow-sm">
-                <svg class="w-5 h-5 dark:hidden text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
-                <svg class="w-5 h-5 hidden dark:block text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
-            </button>
+            
         </div>
 
         <!-- ================= OVERVIEW VIEW ================= -->
@@ -584,8 +572,8 @@
                         return;
                     }
                     els.results.innerHTML = items.map(item => {
-                        const severityClass = item.severity === 'ERROR' ? 'text-red-400' : item.severity === 'WARN' ? 'text-yellow-300' : 'text-green-300';
-                        const actorClass = item.actor_type === 'ADMIN' ? 'text-indigo-300' : item.actor_type === 'SYSTEM' ? 'text-purple-300' : 'text-blue-300';
+                        const severityClass = item.severity === 'ERROR' ? 'text-red-700 dark:text-red-400' : item.severity === 'WARN' ? 'text-yellow-700 dark:text-yellow-300' : 'text-green-700 dark:text-green-300';
+                        const actorClass = item.actor_type === 'ADMIN' ? 'text-indigo-700 dark:text-indigo-300' : item.actor_type === 'SYSTEM' ? 'text-purple-700 dark:text-purple-300' : 'text-blue-700 dark:text-blue-300';
                         const resource = item.resource_ids ? ` ${escapeHtml(JSON.stringify(item.resource_ids))}` : '';
                         const meta = item.metadata ? ` ${escapeHtml(JSON.stringify(item.metadata))}` : '';
                         const user = item.username ? ` ${escapeHtml(item.username)}` : '';

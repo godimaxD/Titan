@@ -1,27 +1,27 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
+    {{template "theme_script"}}
     <title>Receipt #{{.ID}}</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-    <script>
-        if (localStorage.theme === 'light') document.documentElement.classList.remove('dark');
-        else document.documentElement.classList.add('dark');
-    </script>
+    
     <style>
         body { transition: background 0.3s, color 0.3s; }
-        body { background: linear-gradient(135deg, #CCCCFF 0%, #7DF9FF 100%); color: black; }
-        .glass { background: rgba(255,255,255,0.9); border: 1px solid black; box-shadow: 12px 12px 0px rgba(0,0,0,0.15); backdrop-filter: blur(20px); }
-        .dark body { background: #020204; color: white; }
-        .dark .glass { background: rgba(20,20,26,0.9); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
+        :root:not([data-theme="dark"]) body { background: linear-gradient(135deg, var(--bg) 0%, var(--bg-alt) 100%); color: var(--text); }
+        :root:not([data-theme="dark"]) .glass { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); backdrop-filter: blur(20px); }
+        :root[data-theme="dark"] body { background: var(--bg); color: var(--text); }
+        :root[data-theme="dark"] .glass { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); }
         @media print {
             .no-print { display: none !important; }
         }
     </style>
+    {{template "style"}}
 </head>
 <body class="min-h-screen flex items-center justify-center p-6">
+    {{template "theme_toggle"}}
     <div class="glass w-full max-w-3xl rounded-3xl p-8 md:p-10">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-8">
             <div>
