@@ -32,6 +32,14 @@ func initDB() {
 		`CREATE TABLE IF NOT EXISTS blacklist (target TEXT PRIMARY KEY, reason TEXT, date TEXT);`,
 		`CREATE TABLE IF NOT EXISTS methods (name TEXT PRIMARY KEY, layer TEXT, command TEXT, enabled BOOLEAN DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`,
 		`CREATE TABLE IF NOT EXISTS idempotency_keys (key TEXT PRIMARY KEY, user_id TEXT, action TEXT, reference_id TEXT, created_at INTEGER);`,
+		`CREATE TABLE IF NOT EXISTS referral_credits (
+			purchase_key TEXT PRIMARY KEY,
+			buyer TEXT,
+			referrer TEXT,
+			amount REAL,
+			product_id INTEGER,
+			created_at TEXT
+		);`,
 		`CREATE TABLE IF NOT EXISTS activity_logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			timestamp TEXT,
@@ -65,12 +73,15 @@ func initDB() {
 	db.Exec("ALTER TABLE users ADD COLUMN referred_by TEXT;")
 	db.Exec("ALTER TABLE users ADD COLUMN ref_earnings REAL DEFAULT 0;")
 	db.Exec("ALTER TABLE users ADD COLUMN ref_paid INTEGER DEFAULT 0;")
+	db.Exec("ALTER TABLE methods ADD COLUMN layer TEXT;")
 	// Session metadata
 	db.Exec("ALTER TABLE sessions ADD COLUMN created_at INTEGER;")
 	db.Exec("ALTER TABLE sessions ADD COLUMN last_seen INTEGER;")
 	db.Exec("ALTER TABLE sessions ADD COLUMN user_agent TEXT;")
 	db.Exec("ALTER TABLE sessions ADD COLUMN ip TEXT;")
 	db.Exec("UPDATE deposits SET usd_amount = amount * 0.20 WHERE (usd_amount IS NULL OR usd_amount = 0) AND amount > 0")
+	db.Exec("UPDATE users SET plan='Free' WHERE plan IS NULL OR plan=''")
+	db.Exec("UPDATE methods SET layer='layer4' WHERE layer IS NULL OR layer=''")
 
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_deposits_user_id ON deposits(user_id);")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);")
@@ -79,6 +90,9 @@ func initDB() {
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity_logs(ts_unix);")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_activity_action ON activity_logs(action);")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_activity_actor ON activity_logs(actor_type, username);")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_referral_credits_referrer ON referral_credits(referrer);")
+
+	db.Exec("INSERT OR IGNORE INTO plans (name, concurrents, max_time, vip, api) VALUES ('Free', 1, 60, 0, 0)")
 
 	// Seed default methods if table is empty
 	var mCount int

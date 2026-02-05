@@ -5,6 +5,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -215,6 +216,23 @@ func getPlanConfig(n string) PlanConfig {
 		return PlanConfig{Concurrents: 1, MaxTime: 60, VIP: false, API: false}
 	}
 	return p
+}
+func effectivePlanName(plan string) string {
+	plan = strings.TrimSpace(plan)
+	if plan == "" {
+		return "Free"
+	}
+	return plan
+}
+func getReferralEarnings(username string) float64 {
+	var total sql.NullFloat64
+	if err := db.QueryRow("SELECT COALESCE(SUM(amount), 0) FROM referral_credits WHERE referrer=?", username).Scan(&total); err != nil {
+		return 0
+	}
+	if total.Valid {
+		return roundFloat(total.Float64, 2)
+	}
+	return 0
 }
 func isBlacklisted(t string) bool {
 	var x bool

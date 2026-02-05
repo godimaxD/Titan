@@ -37,7 +37,7 @@ var cfg = AppConfig{
 	BinanceAPI:      "https://api.binance.com/api/v3/ticker/price?symbol=TRXUSDT",
 	MaxTrxPrice:     5.0,
 	MinTrxPrice:     0.01,
-	ReferralPercent: 0.10,
+	ReferralPercent: 0.15,
 }
 
 func main() {
