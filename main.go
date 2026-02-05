@@ -31,16 +31,19 @@ var (
 )
 
 var cfg = AppConfig{
-	SessionDuration: 24 * time.Hour,
-	C2Host:          "http://171.244.61.82:5000",
-	C2Key:           "GOD_MODE_SECURE_TOKEN_999",
-	BinanceAPI:      "https://api.binance.com/api/v3/ticker/price?symbol=TRXUSDT",
-	MaxTrxPrice:     5.0,
-	MinTrxPrice:     0.01,
-	ReferralPercent: 0.15,
+	SessionDuration:    24 * time.Hour,
+	C2Host:             "http://171.244.61.82:5000",
+	C2Key:              "GOD_MODE_SECURE_TOKEN_999",
+	BinanceAPI:         "https://api.binance.com/api/v3/ticker/price?symbol=TRXUSDT",
+	MaxTrxPrice:        5.0,
+	MinTrxPrice:        0.01,
+	ReferralPercent:    0.15,
+	TrustProxy:         false,
+	ForceSecureCookies: false,
 }
 
 func main() {
+	applyEnvConfig()
 	initDB()
 	if err := initActivityLogger(); err != nil {
 		log.Fatalf("activity logger init failed: %v", err)

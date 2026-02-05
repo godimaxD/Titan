@@ -8,13 +8,15 @@ import (
 
 // --- CONFIG ---
 type AppConfig struct {
-	SessionDuration time.Duration
-	C2Host          string
-	C2Key           string
-	BinanceAPI      string
-	MaxTrxPrice     float64
-	MinTrxPrice     float64
-	ReferralPercent float64
+	SessionDuration    time.Duration
+	C2Host             string
+	C2Key              string
+	BinanceAPI         string
+	MaxTrxPrice        float64
+	MinTrxPrice        float64
+	ReferralPercent    float64
+	TrustProxy         bool
+	ForceSecureCookies bool
 }
 
 // --- DATA STRUCTURES ---
