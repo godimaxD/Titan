@@ -145,6 +145,7 @@ func TestHandlePurchaseSuccess(t *testing.T) {
 
 func TestHandleAddWalletAdmin(t *testing.T) {
 	setupTestDB(t)
+	t.Setenv(walletKeyEnvName, "wallet-secret")
 	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('admin', 'x', 'God', 'Active', 'tok', 'u#0', 0, 'ref', '', 0, 0)"); err != nil {
 		t.Fatalf("insert admin: %v", err)
 	}
@@ -432,6 +433,264 @@ func TestPanelL7SubmitInvalidInput(t *testing.T) {
 	handlePanelL7Submit(rr, req)
 	if rr.Result().StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rr.Result().StatusCode)
+	}
+}
+
+func TestApiLaunchMethodNotAllowed(t *testing.T) {
+	setupTestDB(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+	origHost := cfg.C2Host
+	origKey := cfg.C2Key
+	cfg.C2Host = server.URL
+	cfg.C2Key = "key"
+	t.Cleanup(func() {
+		cfg.C2Host = origHost
+		cfg.C2Key = origKey
+	})
+
+	if _, err := db.Exec("INSERT INTO plans (name, concurrents, max_time, vip, api) VALUES ('Pro', 1, 60, 0, 1)"); err != nil {
+		t.Fatalf("insert plan: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('apiuser', 'x', 'Pro', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/launch", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	req.RemoteAddr = "127.0.0.1:1234"
+	rr := httptest.NewRecorder()
+	apiLaunch(rr, req)
+	if rr.Result().StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("expected method not allowed, got %d", rr.Result().StatusCode)
+	}
+}
+
+func TestApiLaunchMissingAuth(t *testing.T) {
+	setupTestDB(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/launch", strings.NewReader(url.Values{"target": {"1.1.1.1"}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.RemoteAddr = "127.0.0.1:1234"
+	rr := httptest.NewRecorder()
+	apiLaunch(rr, req)
+	if rr.Result().StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized, got %d", rr.Result().StatusCode)
+	}
+}
+
+func TestApiLaunchRequiresAPIPlan(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO plans (name, concurrents, max_time, vip, api) VALUES ('Free', 1, 60, 0, 0)"); err != nil {
+		t.Fatalf("insert plan: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('apiuser', 'x', 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/launch", strings.NewReader(url.Values{"target": {"1.1.1.1"}}.Encode()))
+	req.Header.Set("Authorization", "Bearer tok")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.RemoteAddr = "127.0.0.1:1234"
+	rr := httptest.NewRecorder()
+	apiLaunch(rr, req)
+	if rr.Result().StatusCode != http.StatusForbidden {
+		t.Fatalf("expected forbidden, got %d", rr.Result().StatusCode)
+	}
+}
+
+func TestApiLaunchRateLimit(t *testing.T) {
+	setupTestDB(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+	origHost := cfg.C2Host
+	origKey := cfg.C2Key
+	cfg.C2Host = server.URL
+	cfg.C2Key = "key"
+	t.Cleanup(func() {
+		cfg.C2Host = origHost
+		cfg.C2Key = origKey
+	})
+
+	if _, err := db.Exec("INSERT INTO plans (name, concurrents, max_time, vip, api) VALUES ('Pro', 1, 60, 0, 1)"); err != nil {
+		t.Fatalf("insert plan: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('apiuser', 'x', 'Pro', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	var lastStatus int
+	for i := 0; i < 11; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/launch", strings.NewReader(url.Values{"target": {"1.1.1.1"}}.Encode()))
+		req.Header.Set("Authorization", "Bearer tok")
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.RemoteAddr = "127.0.0.1:1234"
+		rr := httptest.NewRecorder()
+		apiLaunch(rr, req)
+		lastStatus = rr.Result().StatusCode
+	}
+	if lastStatus != http.StatusTooManyRequests {
+		t.Fatalf("expected rate limit status, got %d", lastStatus)
+	}
+}
+
+func TestApiStopAllScope(t *testing.T) {
+	setupTestDB(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+	origHost := cfg.C2Host
+	origKey := cfg.C2Key
+	cfg.C2Host = server.URL
+	cfg.C2Key = "key"
+	t.Cleanup(func() {
+		cfg.C2Host = origHost
+		cfg.C2Key = origKey
+	})
+
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('bob', 'x', 'Free', 'Active', 'tok2', 'u#2', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	mu.Lock()
+	activeAttacks = map[string]AttackData{
+		"a1": {ID: "a1", UserID: "alice"},
+		"b1": {ID: "b1", UserID: "bob"},
+	}
+	mu.Unlock()
+
+	sess := createSession("alice", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/attack/stopAll", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.Header.Set("X-CSRF-Token", "csrf-token")
+	rr := httptest.NewRecorder()
+	apiStopAll(rr, req)
+	if rr.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected ok, got %d", rr.Result().StatusCode)
+	}
+	mu.Lock()
+	if len(activeAttacks) != 1 {
+		mu.Unlock()
+		t.Fatalf("expected one attack remaining, got %d", len(activeAttacks))
+	}
+	if _, ok := activeAttacks["b1"]; !ok {
+		mu.Unlock()
+		t.Fatalf("expected bob attack to remain")
+	}
+	mu.Unlock()
+
+	mu.Lock()
+	activeAttacks = map[string]AttackData{
+		"a1": {ID: "a1", UserID: "alice"},
+		"b1": {ID: "b1", UserID: "bob"},
+	}
+	mu.Unlock()
+
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('admin', 'x', 'God', 'Active', 'tok3', 'u#0', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert admin: %v", err)
+	}
+	sess = createSession("admin", nil)
+	req = httptest.NewRequest(http.MethodPost, "/api/attack/stopAll", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.Header.Set("X-CSRF-Token", "csrf-token")
+	rr = httptest.NewRecorder()
+	apiStopAll(rr, req)
+	if rr.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected ok, got %d", rr.Result().StatusCode)
+	}
+	mu.Lock()
+	if len(activeAttacks) != 0 {
+		mu.Unlock()
+		t.Fatalf("expected all attacks cleared, got %d", len(activeAttacks))
+	}
+	mu.Unlock()
+}
+
+func TestDepositConfirmRollbackOnFailure(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('admin', 'x', 'God', 'Active', 'tok', 'u#0', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert admin: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok2', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO deposits (id, user_id, amount, usd_amount, address, status, date, expires) VALUES ('dep1', 'alice', 10, 25, 'TADDR', 'Pending', '2024-01-01', ?)", time.Now().Add(10*time.Minute).Unix()); err != nil {
+		t.Fatalf("insert deposit: %v", err)
+	}
+	if _, err := db.Exec("DROP TABLE wallets"); err != nil {
+		t.Fatalf("drop wallets: %v", err)
+	}
+
+	sess := createSession("admin", nil)
+	body := url.Values{"id": {"dep1"}, "action": {"confirm"}, "csrf_token": {"csrf-token"}}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/deposit/action", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	rr := httptest.NewRecorder()
+	handleDepositAction(rr, req)
+	if rr.Result().StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", rr.Result().StatusCode)
+	}
+
+	var status string
+	if err := db.QueryRow("SELECT status FROM deposits WHERE id='dep1'").Scan(&status); err != nil {
+		t.Fatalf("query deposit: %v", err)
+	}
+	if status != "Pending" {
+		t.Fatalf("expected pending status after rollback, got %q", status)
+	}
+	var balance float64
+	if err := db.QueryRow("SELECT balance FROM users WHERE username='alice'").Scan(&balance); err != nil {
+		t.Fatalf("query balance: %v", err)
+	}
+	if balance != 0 {
+		t.Fatalf("expected balance unchanged, got %v", balance)
+	}
+}
+
+func TestDepositRejectRollbackOnFailure(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('admin', 'x', 'God', 'Active', 'tok', 'u#0', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert admin: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok2', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO deposits (id, user_id, amount, usd_amount, address, status, date, expires) VALUES ('dep1', 'alice', 10, 25, 'TADDR', 'Pending', '2024-01-01', ?)", time.Now().Add(10*time.Minute).Unix()); err != nil {
+		t.Fatalf("insert deposit: %v", err)
+	}
+	if _, err := db.Exec("DROP TABLE wallets"); err != nil {
+		t.Fatalf("drop wallets: %v", err)
+	}
+
+	sess := createSession("admin", nil)
+	body := url.Values{"id": {"dep1"}, "action": {"reject"}, "csrf_token": {"csrf-token"}}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/deposit/action", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	rr := httptest.NewRecorder()
+	handleDepositAction(rr, req)
+	if rr.Result().StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", rr.Result().StatusCode)
+	}
+
+	var status string
+	if err := db.QueryRow("SELECT status FROM deposits WHERE id='dep1'").Scan(&status); err != nil {
+		t.Fatalf("query deposit: %v", err)
+	}
+	if status != "Pending" {
+		t.Fatalf("expected pending status after rollback, got %q", status)
 	}
 }
 
