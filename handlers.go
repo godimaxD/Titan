@@ -263,7 +263,7 @@ func handleDepositPayPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var d Deposit
-	var expiresRaw string
+	var expiresRaw sql.NullInt64
 	err := db.QueryRow("SELECT id, user_id, amount, usd_amount, address, status, expires FROM deposits WHERE id=?", id).
 		Scan(&d.ID, &d.UserID, &d.Amount, &d.UsdAmount, &d.Address, &d.Status, &expiresRaw)
 	if err != nil {
@@ -334,7 +334,7 @@ func handleCheckDeposit(w http.ResponseWriter, r *http.Request) {
 	id := Sanitize(r.URL.Query().Get("id"))
 	var status string
 	var owner string
-	var expiresRaw string
+	var expiresRaw sql.NullInt64
 	err := db.QueryRow("SELECT status, user_id, expires FROM deposits WHERE id = ?", id).Scan(&status, &owner, &expiresRaw)
 	if err != nil {
 		http.Error(w, "Not Found", http.StatusNotFound)
@@ -431,23 +431,11 @@ func normalizeDepositStatus(status string) string {
 	}
 }
 
-func parseDepositExpires(raw string) time.Time {
-	if raw == "" {
+func parseDepositExpires(raw sql.NullInt64) time.Time {
+	if !raw.Valid {
 		return time.Time{}
 	}
-	if unix, err := strconv.ParseInt(raw, 10, 64); err == nil {
-		return time.Unix(unix, 0)
-	}
-	if parsed, err := time.Parse("2006-01-02 15:04:05", raw); err == nil {
-		return parsed
-	}
-	if parsed, err := time.Parse("2006-01-02 15:04", raw); err == nil {
-		return parsed
-	}
-	if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
-		return parsed
-	}
-	return time.Time{}
+	return time.Unix(raw.Int64, 0)
 }
 
 func handlePurchase(w http.ResponseWriter, r *http.Request) {
