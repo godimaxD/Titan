@@ -1,28 +1,28 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
+    {{template "theme_script"}}
     <title>Deposit Payment | TITAN</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-    <script>
-        if (localStorage.theme === 'light') document.documentElement.classList.remove('dark');
-        else document.documentElement.classList.add('dark');
-    </script>
+    
     <style>
         body { transition: background 0.3s, color 0.3s; }
-        body { background: linear-gradient(135deg, #CCCCFF 0%, #7DF9FF 100%); color: black; }
-        .glass { background: rgba(255,255,255,0.9); border: 1px solid black; box-shadow: 12px 12px 0px rgba(0,0,0,0.15); backdrop-filter: blur(20px); }
-        .dark body { background: #020204; color: white; }
-        .dark .glass { background: rgba(20,20,26,0.9); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
+        :root:not([data-theme="dark"]) body { background: linear-gradient(135deg, var(--bg) 0%, var(--bg-alt) 100%); color: var(--text); }
+        :root:not([data-theme="dark"]) .glass { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); backdrop-filter: blur(20px); }
+        :root[data-theme="dark"] body { background: var(--bg); color: var(--text); }
+        :root[data-theme="dark"] .glass { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); }
         .hidden-screen { display: none !important; }
         .flex-screen { display: flex !important; }
         @keyframes pulse-dot { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
         .dot { width: 8px; height: 8px; background: #4ade80; border-radius: 50%; animation: pulse-dot 1.5s infinite; }
     </style>
+    {{template "style"}}
 </head>
 <body class="flex items-center justify-center min-h-screen relative overflow-hidden font-sans p-6">
+    {{template "theme_toggle"}}
     <div class="absolute w-[600px] h-[600px] bg-indigo-900/20 rounded-full blur-[120px] -top-20 -left-20 pointer-events-none"></div>
 
     <div class="absolute top-8 left-8 z-50">
@@ -34,7 +34,7 @@
     <div class="glass w-full max-w-3xl rounded-3xl relative z-10 overflow-hidden transition-all duration-300">
         <div class="p-8 md:p-10">
             {{if .FlashMessage}}
-            <div class="mb-6 rounded-xl border px-4 py-3 text-sm font-semibold {{if eq .FlashType "success"}}bg-green-500/10 border-green-500/40 text-green-200{{else if eq .FlashType "info"}}bg-blue-500/10 border-blue-500/40 text-blue-200{{else}}bg-red-500/10 border-red-500/40 text-red-200{{end}}">
+            <div class="mb-6 rounded-xl border px-4 py-3 text-sm font-semibold {{if eq .FlashType "success"}}bg-green-500/10 border-green-500/40 text-green-700 dark:text-green-200{{else if eq .FlashType "info"}}bg-blue-500/10 border-blue-500/40 text-blue-700 dark:text-blue-200{{else}}bg-red-500/10 border-red-500/40 text-red-700 dark:text-red-200{{end}}">
                 {{.FlashMessage}}
             </div>
             {{end}}

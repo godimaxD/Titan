@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<html lang=en class=dark style=color-scheme:dark>
+<html lang=en>
 
 <head>
+    {{template "theme_script"}}
     <meta charset=utf-8>
     <meta name=viewport content="width=device-width, initial-scale=1">
     <title>TITAN NET | Powered by Herios Engine</title>
@@ -230,25 +231,25 @@
         }
 
         :root {
-            --background: 0 0% 100%;
-            --foreground: 0 0% 3.9%;
+            --background: 220 24% 96%;
+            --foreground: 222 47% 11%;
             --card: 0 0% 100%;
-            --card-foreground: 0 0% 3.9%;
+            --card-foreground: 222 47% 11%;
             --popover: 0 0% 100%;
-            --popover-foreground: 0 0% 3.9%;
-            --primary: 0 0% 9%;
-            --primary-foreground: 0 0% 98%;
-            --secondary: 0 0% 96.1%;
-            --secondary-foreground: 0 0% 9%;
-            --muted: 0 0% 96.1%;
-            --muted-foreground: 0 0% 45.1%;
-            --accent: 0 0% 96.1%;
-            --accent-foreground: 0 0% 9%;
+            --popover-foreground: 222 47% 11%;
+            --primary: 229 84% 56%;
+            --primary-foreground: 0 0% 100%;
+            --secondary: 220 24% 92%;
+            --secondary-foreground: 222 47% 11%;
+            --muted: 220 16% 92%;
+            --muted-foreground: 220 9% 46%;
+            --accent: 220 24% 92%;
+            --accent-foreground: 222 47% 11%;
             --destructive: 0 84.2% 60.2%;
             --destructive-foreground: 0 0% 98%;
-            --border: 0 0% 89.8%;
-            --input: 0 0% 89.8%;
-            --ring: 0 0% 3.9%;
+            --border: 220 13% 86%;
+            --input: 220 13% 86%;
+            --ring: 229 84% 56%;
             --chart-1: 12 76% 61%;
             --chart-2: 173 58% 39%;
             --chart-3: 197 37% 24%;
@@ -257,6 +258,7 @@
             --radius: 0.5rem
         }
 
+        :root[data-theme="dark"],
         .dark {
             --background: 0 0% 4%;
             --foreground: 0 0% 98%;
@@ -1721,10 +1723,12 @@
             display: none !important
         }
     </style>
+    {{template "style"}}
 </head>
 
 <body class="__variable_554562 antialiased bg-background text-foreground"
     style="background-color:hsl(0 0% 4%);color:hsl(0 0% 98%)">
+    {{template "theme_toggle"}}
     <nav
         class="fixed z-50 top-6 inset-x-4 h-14 xs:h-16 bg-background/95 backdrop-blur-md border border-border/50 max-w-screen-xl mx-auto rounded-full isolate will-change-transform">
         <div class="h-full flex items-center justify-between mx-auto px-4">

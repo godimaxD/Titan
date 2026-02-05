@@ -1,114 +1,106 @@
-<!DOCTYPE html><html lang="en" class="dark"><head><title>Layer 4 Launch | TITAN</title><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><script src="https://cdn.tailwindcss.com"></script><script src="//unpkg.com/alpinejs" defer></script><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <script>
-        if (localStorage.theme === 'light') {
-            document.documentElement.classList.remove('dark');
-        } else {
-            document.documentElement.classList.add('dark');
-        }
-        function toggleTheme() {
-            if (document.documentElement.classList.contains('dark')) {
-                document.documentElement.classList.remove('dark');
-                localStorage.theme = 'light';
-            } else {
-                document.documentElement.classList.add('dark');
-                localStorage.theme = 'dark';
-            }
-        }
-    </script>
+<!DOCTYPE html><html lang="en"><head>
+    {{template "theme_script"}}<title>Layer 4 Launch | TITAN</title><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><script src="https://cdn.tailwindcss.com"></script><script src="//unpkg.com/alpinejs" defer></script><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
     <style>
         body, div, aside, nav, button, input, span, p, h1, h2, h3, table, td, th {
             transition-property: background-color, color, border-color, box-shadow;
             transition-duration: 200ms;
             transition-timing-function: ease-in-out;
         }
-        body { 
-            background: linear-gradient(135deg, #CCCCFF 0%, #7DF9FF 100%) !important;
+
+        /* ========================
+           LIGHT MODE
+           ======================== */
+        :root:not([data-theme="dark"]) body {
+            background: linear-gradient(135deg, var(--bg) 0%, var(--bg-alt) 100%) !important;
             background-attachment: fixed !important;
-            color: #111827 !important;
+            color: var(--text) !important;
         }
-        :not(.dark) .text-white { color: #000000 !important; }
-        :not(.dark) .text-gray-300 { color: #374151 !important; }
-        :not(.dark) .text-gray-400 { color: #4b5563 !important; }
-        :not(.dark) .text-gray-500 { color: #6b7280 !important; }
-        :not(.dark) .text-indigo-400 { color: #4338ca !important; }
-        .glass-panel { 
-            background: rgba(255, 255, 255, 0.65) !important;
+
+        :root:not([data-theme="dark"]) .glass-panel {
+            background: var(--card) !important;
             backdrop-filter: blur(20px) !important;
             -webkit-backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.6) !important;
-            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.10) !important;
+            border: 1px solid var(--border) !important;
+            box-shadow: var(--shadow) !important;
         }
-        aside {
-            background: rgba(255, 255, 255, 0.75) !important;
-            backdrop-filter: blur(20px) !important;
-            border-right: 1px solid rgba(255,255,255,0.6) !important;
-            box-shadow: 4px 0 24px rgba(0,0,0,0.05);
+
+        :root:not([data-theme="dark"]) aside {
+            background: rgba(255, 255, 255, 0.85) !important;
+            border-right: 1px solid var(--border) !important;
+            box-shadow: 4px 0 24px rgba(15, 23, 42, 0.06);
         }
-        .nav-item { color: #4b5563 !important; font-weight: 700; }
-        .nav-item:hover { 
-            background: rgba(255,255,255,0.8) !important; 
-            color: #000000 !important; 
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+
+        :root:not([data-theme="dark"]) .nav-item { color: var(--muted) !important; font-weight: 700; }
+        :root:not([data-theme="dark"]) .nav-item:hover {
+            background: rgba(15, 23, 42, 0.04) !important;
+            color: var(--text) !important;
+            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
         }
-        .nav-item.active-menu { 
-            background: #ffffff !important; 
-            color: #4f46e5 !important;
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
-            border: 1px solid rgba(99, 102, 241, 0.2);
+        :root:not([data-theme="dark"]) .nav-item.active-menu {
+            background: rgba(79, 70, 229, 0.12) !important;
+            color: var(--primary) !important;
+            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.15);
+            border: 1px solid rgba(79, 70, 229, 0.2);
         }
-        .glass-input {
-            background: rgba(255,255,255,0.9) !important;
-            border: 1px solid #d1d5db !important;
-            color: #000000 !important;
+
+        :root:not([data-theme="dark"]) .glass-input {
+            background: var(--input-bg) !important;
+            border: 1px solid var(--border) !important;
+            color: var(--input-text) !important;
             font-weight: 600;
         }
-        .glass-input:focus {
+        :root:not([data-theme="dark"]) .glass-input:focus {
             background: #ffffff !important;
-            border-color: #4f46e5 !important;
+            border-color: var(--primary) !important;
             box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
         }
-        .glass-btn {
-            background: white !important;
-            border: 1px solid #e5e7eb !important;
-            color: black !important;
+        :root:not([data-theme="dark"]) .glass-btn {
+            background: var(--text) !important;
+            border: 1px solid var(--text) !important;
+            color: var(--bg) !important;
             font-weight: 800;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            box-shadow: 0 2px 5px rgba(15, 23, 42, 0.1);
         }
-        .glass-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        .dark body { 
-            background: #020204 !important; 
-            color: #EAEAEB !important; 
+        :root:not([data-theme="dark"]) .glass-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12); }
+
+        /* ========================
+           DARK MODE
+           ======================== */
+        :root[data-theme="dark"] body {
+            background: var(--bg) !important;
+            color: var(--text) !important;
         }
-        .dark .glass-panel { 
-            background: rgba(20,20,26,0.7) !important; 
-            border: 1px solid rgba(255,255,255,0.08) !important; 
-            box-shadow: none !important; 
+        :root[data-theme="dark"] .glass-panel {
+            background: var(--card) !important;
+            border: 1px solid var(--border) !important;
+            box-shadow: var(--shadow) !important;
             backdrop-filter: blur(30px) !important;
         }
-        .dark aside { 
-            background: rgba(10, 10, 12, 0.8) !important; 
-            border-right: 1px solid rgba(255,255,255,0.05) !important; 
+        :root[data-theme="dark"] aside {
+            background: rgba(10, 10, 12, 0.8) !important;
+            border-right: 1px solid var(--border) !important;
             box-shadow: none !important;
         }
-        .dark .glass-input { 
-            background: rgba(0,0,0,0.6) !important; 
-            border: 1px solid rgba(255,255,255,0.1) !important; 
-            color: white !important; 
+        :root[data-theme="dark"] .glass-input {
+            background: var(--input-bg) !important;
+            border: 1px solid var(--border) !important;
+            color: var(--input-text) !important;
         }
-        .dark .glass-btn { 
-            background: linear-gradient(180deg,rgba(255,255,255,0.1),rgba(255,255,255,0.05)) !important; 
-            border: 1px solid rgba(255,255,255,0.2) !important; 
-            color: white !important; 
+        :root[data-theme="dark"] .glass-btn {
+            background: linear-gradient(180deg,rgba(255,255,255,0.1),rgba(255,255,255,0.05)) !important;
+            border: 1px solid rgba(255,255,255,0.2) !important;
+            color: white !important;
         }
-        .dark .nav-item { color: #9ca3af !important; background: transparent !important; }
-        .dark .nav-item:hover { color: white !important; background: rgba(255,255,255,0.03) !important; box-shadow: none !important; }
-        .dark .nav-item.active-menu { background: rgba(20,20,30,0.5) !important; color: white !important; border: 1px solid #4f46e5; box-shadow: 0 0 20px rgba(79,70,229,0.15) !important; }
-        .dark .text-white { color: white !important; }
-        .dark .text-gray-500 { color: #6b7280 !important; }
-        .dark .text-gray-400 { color: #9ca3af !important; }
+        :root[data-theme="dark"] .nav-item { color: #9ca3af !important; background: transparent !important; }
+        :root[data-theme="dark"] .nav-item:hover { color: white !important; background: rgba(255,255,255,0.03) !important; box-shadow: none !important; }
+        :root[data-theme="dark"] .nav-item.active-menu { background: rgba(20,20,30,0.5) !important; color: white !important; border: 1px solid #4f46e5; box-shadow: 0 0 20px rgba(79,70,229,0.15) !important; }
+
         [x-cloak] { display: none !important; }
     </style>
+    {{template "style"}}
 </head><body class="flex h-screen overflow-hidden  text-white">
+    {{template "theme_toggle"}}
 <div class="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-[400px]">
     <div class="glass-panel px-2 py-3 rounded-2xl flex justify-around items-center shadow-2xl bg-white/90 dark:bg-[#050505]/90 border border-black/5 dark:border-white/10 backdrop-blur-xl transition-all duration-300">
         <a href="/dashboard" class="flex flex-col items-center gap-1 p-2 rounded-xl transition group {{if eq .CurrentPage "dashboard"}}text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-white/5{{else}}text-gray-400 dark:text-gray-500 hover:text-black dark:hover:text-white{{end}}">
@@ -162,10 +154,7 @@
     <header class="w-full h-20 flex items-center justify-between px-8 md:px-12 border-b border-white/5 /60 backdrop-blur z-10 sticky top-0">
         <h1 class="text-2xl font-black tracking-tight text-white uppercase">Layer 4 Launch</h1>
         <div class="flex items-center gap-4">
-            <button onclick="toggleTheme()" class="w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200 border bg-white border-gray-300 text-gray-600 hover:bg-gray-100 dark:bg-white/5 dark:border-white/10 dark:text-yellow-400 dark:hover:bg-white/10 mr-2">
-                <svg class="w-5 h-5 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
-                <svg class="w-5 h-5 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
-            </button>
+            
             <div class="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/10 text-gray-400 hover:text-white cursor-pointer transition">{{.UsernameInitials}}</div>
         </div>
     </header>
