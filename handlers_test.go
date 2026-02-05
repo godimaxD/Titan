@@ -420,8 +420,8 @@ func TestHandleRedeemLoginSuccess(t *testing.T) {
 	}
 
 	body := url.Values{
-		"code":       {"RDM123"},
-		"csrf_token": {"csrf-token"},
+		"redeem_code": {"RDM123"},
+		"csrf_token":  {"csrf-token"},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/redeem-login", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -463,8 +463,8 @@ func TestHandleRedeemLoginSuccess(t *testing.T) {
 	reqReuse.RemoteAddr = "127.0.0.1:1234"
 	rrReuse := httptest.NewRecorder()
 	handleRedeemLogin(rrReuse, reqReuse)
-	if loc := rrReuse.Result().Header.Get("Location"); loc != "/login?err=invalid_code" {
-		t.Fatalf("expected invalid code redirect, got %q", loc)
+	if loc := rrReuse.Result().Header.Get("Location"); loc != "/login?err=code_used&mode=redeem" {
+		t.Fatalf("expected used code redirect, got %q", loc)
 	}
 }
 
@@ -499,8 +499,8 @@ func TestHandleRedeemLoginFailure(t *testing.T) {
 			tc.setup(t)
 
 			body := url.Values{
-				"code":       {tc.code},
-				"csrf_token": {"csrf-token"},
+				"redeem_code": {tc.code},
+				"csrf_token":  {"csrf-token"},
 			}.Encode()
 			req := httptest.NewRequest(http.MethodPost, "/redeem-login", strings.NewReader(body))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -510,10 +510,62 @@ func TestHandleRedeemLoginFailure(t *testing.T) {
 			rr := httptest.NewRecorder()
 			handleRedeemLogin(rr, req)
 
-			if loc := rr.Result().Header.Get("Location"); loc != "/login?err=invalid_code" {
+			if tc.name == "used code" {
+				if loc := rr.Result().Header.Get("Location"); loc != "/login?err=code_used&mode=redeem" {
+					t.Fatalf("expected used code redirect, got %q", loc)
+				}
+			} else if loc := rr.Result().Header.Get("Location"); loc != "/login?err=invalid_code&mode=redeem" {
 				t.Fatalf("expected invalid code redirect, got %q", loc)
 			}
 		})
+	}
+}
+
+func TestLoginPageNoBackToLoginInPasswordMode(t *testing.T) {
+	setupTestDB(t)
+	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	rr := httptest.NewRecorder()
+	handleLogin(rr, req)
+
+	if rr.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected OK, got %d", rr.Result().StatusCode)
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, "Back to Login") {
+		t.Fatalf("expected no Back to Login link in password mode")
+	}
+	if !strings.Contains(body, "Login with Redeem Code") {
+		t.Fatalf("expected redeem code option in login mode")
+	}
+}
+
+func TestProfileCopyButtonMarkup(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('copy-user', 'x', 'Free', 'Active', 'tok-copy', 'u#9', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	sess := createSession("copy-user", nil)
+	if sess == "" {
+		t.Fatalf("expected session token")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/profile", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	req.RemoteAddr = "127.0.0.1:1234"
+
+	rr := httptest.NewRecorder()
+	handlePage("profile.html")(rr, req)
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "data-copy-target=\"api-token-value\"") {
+		t.Fatalf("expected api token copy target")
+	}
+	if !strings.Contains(body, "navigator.clipboard") || !strings.Contains(body, "execCommand('copy')") {
+		t.Fatalf("expected clipboard API with execCommand fallback")
+	}
+	if !strings.Contains(body, "Copied!") {
+		t.Fatalf("expected copied feedback text")
 	}
 }
 
