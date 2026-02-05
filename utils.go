@@ -37,6 +37,32 @@ const (
 	walletKeyEnvName = "TITAN_WALLET_KEY"
 )
 
+var (
+	errNoUsableWallets   = errors.New("no usable wallets")
+	errInvalidWalletRows = errors.New("invalid wallet rows")
+)
+
+const walletUsableSQL = `
+	TRIM(address) != ''
+	AND TRIM(private_key) != ''
+	AND (assigned_to IS NULL OR TRIM(assigned_to) = '')
+	AND (status IS NULL OR TRIM(status) = '' OR lower(status) = 'free')
+	AND NOT EXISTS (
+		SELECT 1 FROM deposits d
+		WHERE d.address = wallets.address
+			AND lower(d.status) = 'pending'
+			AND (d.expires IS NULL OR d.expires = 0 OR d.expires > ?)
+	)
+`
+
+type walletCandidate struct {
+	RowID      int64
+	Address    string
+	Status     string
+	AssignedTo string
+	PrivateKey string
+}
+
 func renderTemplate(w http.ResponseWriter, tmpl string, data interface{}) {
 	// Use html/template to ensure proper contextual auto-escaping.
 	t, err := template.ParseFiles("templates/"+tmpl, "templates/base_style.html")
@@ -335,6 +361,168 @@ func decryptWalletPrivateKey(enc string) (string, error) {
 		return "", err
 	}
 	return string(plain), nil
+}
+
+func depositDebugEnabled() bool {
+	return parseEnvBool(os.Getenv("TITAN_DEBUG")) || parseEnvBool(os.Getenv("DEBUG"))
+}
+
+func walletRowUsable(row walletCandidate, activePending bool) bool {
+	if strings.TrimSpace(row.Address) == "" {
+		return false
+	}
+	if strings.TrimSpace(row.PrivateKey) == "" {
+		return false
+	}
+	if strings.TrimSpace(row.AssignedTo) != "" {
+		return false
+	}
+	status := strings.TrimSpace(row.Status)
+	if status != "" && !strings.EqualFold(status, "Free") {
+		return false
+	}
+	return !activePending
+}
+
+func hasActivePendingDepositTx(tx *sql.Tx, address string, now time.Time) (bool, error) {
+	if strings.TrimSpace(address) == "" {
+		return false, nil
+	}
+	var count int
+	err := tx.QueryRow(`
+		SELECT count(*)
+		FROM deposits
+		WHERE address = ?
+			AND lower(status) = 'pending'
+			AND (expires IS NULL OR expires = 0 OR expires > ?)
+	`, address, now.Unix()).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func selectUsableWalletTx(tx *sql.Tx, now time.Time) (walletCandidate, error) {
+	query := fmt.Sprintf(`
+		SELECT rowid,
+			address,
+			COALESCE(status, ''),
+			COALESCE(assigned_to, ''),
+			COALESCE(private_key, '')
+		FROM wallets
+		WHERE %s
+		ORDER BY rowid ASC
+		LIMIT 5
+	`, walletUsableSQL)
+	rows, err := tx.Query(query, now.Unix())
+	if err != nil {
+		return walletCandidate{}, err
+	}
+	defer rows.Close()
+	found := false
+	for rows.Next() {
+		found = true
+		var row walletCandidate
+		if err := rows.Scan(&row.RowID, &row.Address, &row.Status, &row.AssignedTo, &row.PrivateKey); err != nil {
+			return walletCandidate{}, err
+		}
+		activePending, err := hasActivePendingDepositTx(tx, row.Address, now)
+		if err != nil {
+			return walletCandidate{}, err
+		}
+		if walletRowUsable(row, activePending) {
+			return row, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return walletCandidate{}, err
+	}
+	if found {
+		return walletCandidate{}, errInvalidWalletRows
+	}
+	return walletCandidate{}, errNoUsableWallets
+}
+
+func countUsableWalletsTx(tx *sql.Tx, now time.Time) (int, error) {
+	query := fmt.Sprintf("SELECT count(*) FROM wallets WHERE %s", walletUsableSQL)
+	var count int
+	if err := tx.QueryRow(query, now.Unix()).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func logDepositWalletFailure(tx *sql.Tx, reason string, err error) {
+	if !depositDebugEnabled() {
+		return
+	}
+	var queryer interface {
+		QueryRow(string, ...any) *sql.Row
+		Query(string, ...any) (*sql.Rows, error)
+	}
+	if tx != nil {
+		queryer = tx
+	} else {
+		queryer = db
+	}
+	var total int
+	_ = queryer.QueryRow("SELECT count(*) FROM wallets").Scan(&total)
+	usable := 0
+	if tx != nil {
+		if count, countErr := countUsableWalletsTx(tx, time.Now()); countErr == nil {
+			usable = count
+		}
+	} else {
+		query := fmt.Sprintf("SELECT count(*) FROM wallets WHERE %s", walletUsableSQL)
+		_ = queryer.QueryRow(query, time.Now().Unix()).Scan(&usable)
+	}
+	samples := make([]string, 0, 3)
+	rows, sampleErr := queryer.Query("SELECT rowid, address, COALESCE(status, ''), COALESCE(assigned_to, ''), COALESCE(private_key, '') FROM wallets ORDER BY rowid ASC LIMIT 3")
+	if sampleErr == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var row walletCandidate
+			if err := rows.Scan(&row.RowID, &row.Address, &row.Status, &row.AssignedTo, &row.PrivateKey); err != nil {
+				continue
+			}
+			hasKey := strings.TrimSpace(row.PrivateKey) != ""
+			samples = append(samples, fmt.Sprintf("{id:%d address:%s status:%s assigned_to:%s has_key:%t}", row.RowID, row.Address, row.Status, row.AssignedTo, hasKey))
+		}
+	}
+	log.Printf("deposit wallet debug: reason=%s err=%v total_wallets=%d usable_wallets=%d sample=%v", reason, err, total, usable, samples)
+}
+
+func expirePendingDepositsTx(tx *sql.Tx, now time.Time) error {
+	if _, err := tx.Exec("UPDATE deposits SET status='Expired' WHERE lower(status)='pending' AND expires < ? AND expires != 0", now.Unix()); err != nil {
+		return err
+	}
+	_, err := tx.Exec(`
+		UPDATE wallets
+		SET status='Free', assigned_to=NULL
+		WHERE assigned_to IN (SELECT id FROM deposits WHERE lower(status)='expired' AND expires < ?)
+			AND NOT EXISTS (
+				SELECT 1 FROM deposits d
+				WHERE d.address = wallets.address
+					AND lower(d.status) = 'pending'
+					AND (d.expires IS NULL OR d.expires = 0 OR d.expires > ?)
+			)
+	`, now.Unix(), now.Unix())
+	return err
+}
+
+func releaseWalletForDepositTx(tx *sql.Tx, depositID string, now time.Time) error {
+	_, err := tx.Exec(`
+		UPDATE wallets
+		SET status='Free', assigned_to=NULL
+		WHERE (assigned_to = ? OR address = (SELECT address FROM deposits WHERE id = ?))
+			AND NOT EXISTS (
+				SELECT 1 FROM deposits d
+				WHERE d.address = wallets.address
+					AND lower(d.status) = 'pending'
+					AND (d.expires IS NULL OR d.expires = 0 OR d.expires > ?)
+			)
+	`, depositID, depositID, now.Unix())
+	return err
 }
 
 func generateToken() string { b := make([]byte, 16); rand.Read(b); return fmt.Sprintf("%x", b) }

@@ -66,8 +66,14 @@ func main() {
 				}
 			}
 			mu.Unlock()
-			db.Exec("UPDATE deposits SET status='Expired' WHERE status='Pending' AND expires < ?", time.Now().Unix())
-			db.Exec("UPDATE wallets SET status='Free', assigned_to='' WHERE assigned_to IN (SELECT id FROM deposits WHERE status='Expired')")
+			tx, err := db.Begin()
+			if err == nil {
+				if err := expirePendingDepositsTx(tx, time.Now()); err == nil {
+					_ = tx.Commit()
+				} else {
+					_ = tx.Rollback()
+				}
+			}
 		}
 	}()
 

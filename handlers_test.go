@@ -251,7 +251,7 @@ func TestHandleCreateDepositRedirectsToPayPage(t *testing.T) {
 	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
-	if _, err := db.Exec("INSERT INTO wallets (address, private_key, status, assigned_to) VALUES ('T123', 'key', 'Free', '')"); err != nil {
+	if _, err := db.Exec("INSERT INTO wallets (address, private_key, status, assigned_to) VALUES ('T123', 'key', 'Free', NULL)"); err != nil {
 		t.Fatalf("insert wallet: %v", err)
 	}
 	cfg.BinanceAPI = "http://127.0.0.1:1"
@@ -277,6 +277,145 @@ func TestHandleCreateDepositRedirectsToPayPage(t *testing.T) {
 	loc := res.Header.Get("Location")
 	if !strings.HasPrefix(loc, "/deposit/pay?id=") {
 		t.Fatalf("expected pay redirect, got %q", loc)
+	}
+}
+
+func TestHandleCreateDepositAllowsEmptyStatusWallet(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO wallets (address, private_key, status, assigned_to) VALUES ('TEMPTY', 'key', '', NULL)"); err != nil {
+		t.Fatalf("insert wallet: %v", err)
+	}
+	cfg.BinanceAPI = "http://127.0.0.1:1"
+	lastKnownTrxPrice = 0.2
+
+	sess := createSession("alice", nil)
+	body := url.Values{
+		"csrf_token": {"csrf-token"},
+		"amount":     {"10"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+
+	rr := httptest.NewRecorder()
+	handleCreateDeposit(rr, req)
+
+	if rr.Result().StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", rr.Result().StatusCode)
+	}
+	if loc := rr.Result().Header.Get("Location"); !strings.HasPrefix(loc, "/deposit/pay?id=") {
+		t.Fatalf("expected pay redirect, got %q", loc)
+	}
+}
+
+func TestHandleCreateDepositReusesExpiredWallet(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO wallets (address, private_key, status, assigned_to) VALUES ('TOLD', 'key', 'Busy', 'dep-old')"); err != nil {
+		t.Fatalf("insert wallet: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO deposits (id, user_id, amount, usd_amount, address, status, date, expires) VALUES ('dep-old', 'alice', 10, 10, 'TOLD', 'Pending', '2024-01-01 12:00', ?)", time.Now().Add(-10*time.Minute).Unix()); err != nil {
+		t.Fatalf("insert deposit: %v", err)
+	}
+	cfg.BinanceAPI = "http://127.0.0.1:1"
+	lastKnownTrxPrice = 0.2
+
+	sess := createSession("alice", nil)
+	body := url.Values{
+		"csrf_token": {"csrf-token"},
+		"amount":     {"15"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+
+	rr := httptest.NewRecorder()
+	handleCreateDeposit(rr, req)
+
+	if rr.Result().StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", rr.Result().StatusCode)
+	}
+	if loc := rr.Result().Header.Get("Location"); !strings.HasPrefix(loc, "/deposit/pay?id=") {
+		t.Fatalf("expected pay redirect, got %q", loc)
+	}
+}
+
+func TestHandleCreateDepositFailsWithNoUsableWallets(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	cfg.BinanceAPI = "http://127.0.0.1:1"
+	lastKnownTrxPrice = 0.2
+
+	sess := createSession("alice", nil)
+	body := url.Values{
+		"csrf_token": {"csrf-token"},
+		"amount":     {"15"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+
+	rr := httptest.NewRecorder()
+	handleCreateDeposit(rr, req)
+
+	if rr.Result().StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", rr.Result().StatusCode)
+	}
+	if loc := rr.Result().Header.Get("Location"); loc != "/deposit?err=wallets" {
+		t.Fatalf("expected wallets error, got %q", loc)
+	}
+}
+
+func TestHandleCreateDepositRollbackFreesWallet(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO wallets (address, private_key, status, assigned_to) VALUES ('TROLL', 'key', 'Free', NULL)"); err != nil {
+		t.Fatalf("insert wallet: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TRIGGER fail_deposit_insert BEFORE INSERT ON deposits BEGIN SELECT RAISE(FAIL, 'boom'); END;`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+	cfg.BinanceAPI = "http://127.0.0.1:1"
+	lastKnownTrxPrice = 0.2
+
+	sess := createSession("alice", nil)
+	body := url.Values{
+		"csrf_token": {"csrf-token"},
+		"amount":     {"20"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+
+	rr := httptest.NewRecorder()
+	handleCreateDeposit(rr, req)
+
+	if rr.Result().StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", rr.Result().StatusCode)
+	}
+	if loc := rr.Result().Header.Get("Location"); loc != "/deposit?err=db" {
+		t.Fatalf("expected db error, got %q", loc)
+	}
+	var status string
+	var assigned sql.NullString
+	if err := db.QueryRow("SELECT status, assigned_to FROM wallets WHERE address='TROLL'").Scan(&status, &assigned); err != nil {
+		t.Fatalf("query wallet: %v", err)
+	}
+	if status != "Free" || assigned.Valid {
+		t.Fatalf("expected wallet free and unassigned, got status=%q assigned=%v", status, assigned)
 	}
 }
 
@@ -366,6 +505,23 @@ func TestDepositCheckOwnership(t *testing.T) {
 	}
 	if payload["status"] != "Pending" {
 		t.Fatalf("expected Pending status, got %q", payload["status"])
+	}
+}
+
+func TestStatusPageDoesNotLeakSensitiveInfo(t *testing.T) {
+	setupTestDB(t)
+	req := httptest.NewRequest(http.MethodGet, "/status", nil)
+	rr := httptest.NewRecorder()
+	handleStatusPage(rr, req)
+
+	if rr.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected ok, got %d", rr.Result().StatusCode)
+	}
+	body := strings.ToLower(rr.Body.String())
+	for _, keyword := range []string{"goroutine", "mem", "sqlite", "wallet", "users", "sessions", "gomaxprocs", "runtime"} {
+		if strings.Contains(body, keyword) {
+			t.Fatalf("status page leaked keyword: %s", keyword)
+		}
 	}
 }
 
