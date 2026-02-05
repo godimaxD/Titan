@@ -901,6 +901,9 @@ func handleAdminPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ad := AdminData{Username: "Admin", Uptime: getUptime(), CurrentView: view, RPS: int(atomic.LoadUint64(&currentRPS)), CsrfToken: csrfToken}
+	_, walletKeyOK := walletEncryptionKey()
+	ad.WalletEncryptionAvailable = walletKeyOK
+	ad.WalletEncryptionEnv = walletKeyEnvName
 	db.QueryRow("SELECT count(*) FROM users").Scan(&ad.TotalUsers)
 	ad.RunningAttacks = len(activeAttacks)
 
@@ -1970,6 +1973,15 @@ func handleAddWallet(w http.ResponseWriter, r *http.Request) {
 	if !ok || username != "admin" {
 		return
 	}
+	if r.Method == http.MethodGet {
+		q := r.URL.Query()
+		if q.Get("view") == "" {
+			q.Set("view", "finance")
+			r.URL.RawQuery = q.Encode()
+		}
+		handleAdminPage(w, r)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
@@ -1981,7 +1993,7 @@ func handleAddWallet(w http.ResponseWriter, r *http.Request) {
 	address := Sanitize(r.FormValue("address"))
 	privateKey, err := encryptWalletPrivateKey(r.FormValue("private_key"))
 	if err != nil {
-		http.Error(w, "Wallet encryption unavailable", http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Wallet encryption unavailable. Set %s.", walletKeyEnvName), http.StatusInternalServerError)
 		return
 	}
 	db.Exec("INSERT INTO wallets(address, private_key, status, assigned_to) VALUES (?, ?, 'Free', NULL)", address, privateKey)

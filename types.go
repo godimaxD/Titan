@@ -207,6 +207,8 @@ type AdminData struct {
 	Blacklist                                []BlacklistEntry
 	ActiveAttacksList                        []AttackData
 	CsrfToken                                string
+	WalletEncryptionAvailable                bool
+	WalletEncryptionEnv                       string
 }
 
 type BlacklistEntry struct{ Target, Reason, Date string }

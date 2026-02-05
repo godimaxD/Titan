@@ -184,6 +184,78 @@ func TestHandleAddWalletAdmin(t *testing.T) {
 	}
 }
 
+func TestHandleAddWalletAdminMissingKey(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('admin', 'x', 'God', 'Active', 'tok', 'u#0', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert admin: %v", err)
+	}
+
+	sess := createSession("admin", nil)
+	if sess == "" {
+		t.Fatalf("expected session token")
+	}
+
+	body := url.Values{
+		"csrf_token":  {"csrf-token"},
+		"address":     {"T999"},
+		"private_key": {"key"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/add-wallet", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+
+	rr := httptest.NewRecorder()
+	handleAddWallet(rr, req)
+
+	if rr.Result().StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rr.Result().StatusCode)
+	}
+	if !strings.Contains(rr.Body.String(), walletKeyEnvName) {
+		t.Fatalf("expected error to mention %s", walletKeyEnvName)
+	}
+
+	var count int
+	if err := db.QueryRow("SELECT count(*) FROM wallets WHERE address='T999'").Scan(&count); err != nil {
+		t.Fatalf("query wallet: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected no wallet insert, got %d", count)
+	}
+}
+
+func TestHandleAddWalletGetShowsEncryptionAlert(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('admin', 'x', 'God', 'Active', 'tok', 'u#0', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert admin: %v", err)
+	}
+
+	sess := createSession("admin", nil)
+	if sess == "" {
+		t.Fatalf("expected session token")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/add-wallet", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+
+	rr := httptest.NewRecorder()
+	handleAddWallet(rr, req)
+
+	if rr.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Result().StatusCode)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Manage Wallets") {
+		t.Fatalf("expected admin wallet form to render")
+	}
+	if !strings.Contains(body, walletKeyEnvName) {
+		t.Fatalf("expected alert to mention %s", walletKeyEnvName)
+	}
+	if !strings.Contains(body, "disabled") {
+		t.Fatalf("expected submit button to be disabled")
+	}
+}
+
 func TestPanelRequiresSession(t *testing.T) {
 	setupTestDB(t)
 	req := httptest.NewRequest(http.MethodGet, "/panel", nil)
