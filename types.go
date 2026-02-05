@@ -155,6 +155,7 @@ type PageData struct {
 	StatusMemAlloc                                                             string
 	StatusMemSys                                                               string
 	StatusActiveAttacksAvailable                                               bool
+	UseTokenLogin                                                              bool
 }
 
 type InvoiceData struct {
@@ -208,7 +209,7 @@ type AdminData struct {
 	ActiveAttacksList                        []AttackData
 	CsrfToken                                string
 	WalletEncryptionAvailable                bool
-	WalletEncryptionEnv                       string
+	WalletEncryptionEnv                      string
 }
 
 type BlacklistEntry struct{ Target, Reason, Date string }

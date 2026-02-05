@@ -117,6 +117,59 @@ func TestHandleLoginSuccess(t *testing.T) {
 	}
 }
 
+func TestHandleTokenLoginSuccess(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, 'Free', 'Active', ?, 'u#1', 0, 'ref', '', 0, 0)", "api-user", "hash", "api-token"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	body := url.Values{
+		"token":      {"api-token"},
+		"csrf_token": {"csrf-token"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/token-login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.RemoteAddr = "127.0.0.1:1234"
+
+	rr := httptest.NewRecorder()
+	handleTokenLogin(rr, req)
+
+	res := rr.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", res.StatusCode)
+	}
+	if loc := res.Header.Get("Location"); !strings.HasPrefix(loc, "/dashboard") {
+		t.Fatalf("expected dashboard redirect, got %q", loc)
+	}
+	if len(res.Cookies()) == 0 {
+		t.Fatalf("expected session cookie")
+	}
+}
+
+func TestHandleTokenLoginInvalid(t *testing.T) {
+	setupTestDB(t)
+	body := url.Values{
+		"token":      {""},
+		"csrf_token": {"csrf-token"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/token-login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.RemoteAddr = "127.0.0.1:1234"
+
+	rr := httptest.NewRecorder()
+	handleTokenLogin(rr, req)
+
+	res := rr.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", res.StatusCode)
+	}
+	if loc := res.Header.Get("Location"); loc != "/login?err=invalid_token&mode=token" {
+		t.Fatalf("expected invalid token redirect, got %q", loc)
+	}
+}
+
 func TestHandlePurchaseSuccess(t *testing.T) {
 	setupTestDB(t)
 	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('buyer', 'x', 'Free', 'Active', 'tok', 'u#2', 50, 'ref', '', 0, 0)"); err != nil {
@@ -145,6 +198,35 @@ func TestHandlePurchaseSuccess(t *testing.T) {
 	}
 	if loc := rr.Result().Header.Get("Location"); loc != "/dashboard?msg=plan_activated" {
 		t.Fatalf("unexpected redirect location: %q", loc)
+	}
+}
+
+func TestHandleStatusPageLayout(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('viewer', 'x', 'Free', 'Active', 'tok', 'u#2', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	sess := createSession("viewer", nil)
+	if sess == "" {
+		t.Fatalf("expected session token")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/status", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	rr := httptest.NewRecorder()
+	handleStatusPage(rr, req)
+
+	res := rr.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected ok, got %d", res.StatusCode)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "<aside") {
+		t.Fatalf("expected sidebar layout in status page")
+	}
+	if !strings.Contains(body, "Network Status") || !strings.Contains(body, "Uptime") {
+		t.Fatalf("expected status content to include uptime")
 	}
 }
 
@@ -183,6 +265,46 @@ func TestHandleAddWalletAdmin(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected wallet insert, got %d", count)
+	}
+}
+
+func TestHandleRotateTokenInvalidatesOld(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('rotate-user', 'x', 'Free', 'Active', 'old-token', 'u#3', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	sess := createSession("rotate-user", nil)
+	if sess == "" {
+		t.Fatalf("expected session token")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/user/token/rotate", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.Header.Set("X-CSRF-Token", "csrf-token")
+	rr := httptest.NewRecorder()
+	handleRotateToken(rr, req)
+
+	res := rr.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected ok, got %d", res.StatusCode)
+	}
+	var payload struct {
+		Status string `json:"status"`
+		Token  string `json:"token"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Token == "" || payload.Token == "old-token" {
+		t.Fatalf("expected new token")
+	}
+	if _, ok := getUserByToken("old-token"); ok {
+		t.Fatalf("expected old token to be invalidated")
+	}
+	if _, ok := getUserByToken(payload.Token); !ok {
+		t.Fatalf("expected new token to be valid")
 	}
 }
 
@@ -397,10 +519,10 @@ func TestHandleRedeemLoginFailure(t *testing.T) {
 
 func TestProfileShowsApiTokenForSessionUser(t *testing.T) {
 	cases := []struct {
-		name         string
-		sessionUser  string
-		expectToken  string
-		absentToken  string
+		name        string
+		sessionUser string
+		expectToken string
+		absentToken string
 	}{
 		{
 			name:        "alice sees alice token",
@@ -452,8 +574,16 @@ func TestProfileShowsApiTokenForSessionUser(t *testing.T) {
 func TestStatusPageShowsUptimeOnly(t *testing.T) {
 	setupTestDB(t)
 	startTime = time.Now().Add(-2 * time.Hour)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('status-user', 'x', 'Free', 'Active', 'tok', 'u#9', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	sess := createSession("status-user", nil)
+	if sess == "" {
+		t.Fatalf("expected session token")
+	}
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 	req.RemoteAddr = "127.0.0.1:1234"
 	rr := httptest.NewRecorder()
 	handleStatusPage(rr, req)
@@ -771,7 +901,15 @@ func TestDepositCheckOwnership(t *testing.T) {
 
 func TestStatusPageDoesNotLeakSensitiveInfo(t *testing.T) {
 	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('status-user', 'x', 'Free', 'Active', 'tok', 'u#9', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	sess := createSession("status-user", nil)
+	if sess == "" {
+		t.Fatalf("expected session token")
+	}
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 	rr := httptest.NewRecorder()
 	handleStatusPage(rr, req)
 
