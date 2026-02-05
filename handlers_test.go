@@ -43,6 +43,14 @@ func setupTestDB(t *testing.T) {
 		`CREATE TABLE methods (name TEXT PRIMARY KEY, layer TEXT, command TEXT, enabled BOOLEAN DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`,
 		`CREATE TABLE blacklist (target TEXT PRIMARY KEY, reason TEXT, date TEXT);`,
 		`CREATE TABLE idempotency_keys (key TEXT PRIMARY KEY, user_id TEXT, action TEXT, reference_id TEXT, created_at INTEGER);`,
+		`CREATE TABLE referral_credits (
+			purchase_key TEXT PRIMARY KEY,
+			buyer TEXT,
+			referrer TEXT,
+			amount REAL,
+			product_id INTEGER,
+			created_at TEXT
+		);`,
 		`CREATE TABLE activity_logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			timestamp TEXT,
@@ -473,6 +481,59 @@ func TestPanelL4SubmitSuccess(t *testing.T) {
 	}
 }
 
+func TestPanelL4RejectsLayer7Method(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('carol', 'x', 'Free', 'Active', 'tok', 'u#3', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO methods (name, layer, command, enabled) VALUES ('HTTP-GET', 'layer7', 'HTTP-GET', 1)"); err != nil {
+		t.Fatalf("insert method: %v", err)
+	}
+
+	sess := createSession("carol", nil)
+	body := url.Values{
+		"target":      {"1.1.1.1"},
+		"port":        {"443"},
+		"time":        {"10"},
+		"concurrency": {"1"},
+		"method":      {"HTTP-GET"},
+		"csrf_token":  {"csrf-token"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/panel/l4/submit", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.RemoteAddr = "127.0.0.1:1234"
+
+	rr := httptest.NewRecorder()
+	handlePanelL4Submit(rr, req)
+	res := rr.Result()
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected bad request, got %d", res.StatusCode)
+	}
+	if !strings.Contains(rr.Body.String(), "Selected method is not available") {
+		t.Fatalf("expected method error in response")
+	}
+}
+
+func TestLoadMethodsFromDBFiltersByLayer(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO methods (name, layer, command, enabled) VALUES ('UDP-FLOOD', 'layer4', 'UDP-FLOOD', 1)"); err != nil {
+		t.Fatalf("insert method: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO methods (name, layer, command, enabled) VALUES ('HTTP-GET', 'layer7', 'HTTP-GET', 1)"); err != nil {
+		t.Fatalf("insert method: %v", err)
+	}
+
+	methodsMap, _ := loadMethodsFromDB()
+	if len(methodsMap["layer4"]) != 1 || methodsMap["layer4"][0] != "UDP-FLOOD" {
+		t.Fatalf("expected layer4 method, got %v", methodsMap["layer4"])
+	}
+	if len(methodsMap["layer7"]) != 1 || methodsMap["layer7"][0] != "HTTP-GET" {
+		t.Fatalf("expected layer7 method, got %v", methodsMap["layer7"])
+	}
+}
+
 func TestRegisterWithReferralStoresReferrer(t *testing.T) {
 	setupTestDB(t)
 	origCaptcha := captchaVerify
@@ -512,6 +573,39 @@ func TestRegisterWithReferralStoresReferrer(t *testing.T) {
 	}
 	if refPaid != 0 {
 		t.Fatalf("expected ref_paid 0, got %d", refPaid)
+	}
+}
+
+func TestRegisterDefaultsToFreePlan(t *testing.T) {
+	setupTestDB(t)
+	origCaptcha := captchaVerify
+	captchaVerify = func(_, _ string) bool { return true }
+	t.Cleanup(func() { captchaVerify = origCaptcha })
+
+	body := url.Values{
+		"username":   {"newuser"},
+		"password":   {"pass1234"},
+		"captchaId":  {"id"},
+		"captcha":    {"ok"},
+		"csrf_token": {"csrf-token"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.RemoteAddr = "127.0.0.1:1234"
+
+	rr := httptest.NewRecorder()
+	handleRegister(rr, req)
+	if rr.Result().StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", rr.Result().StatusCode)
+	}
+
+	var plan string
+	if err := db.QueryRow("SELECT plan FROM users WHERE username='newuser'").Scan(&plan); err != nil {
+		t.Fatalf("query new user plan: %v", err)
+	}
+	if plan != "Free" {
+		t.Fatalf("expected Free plan, got %q", plan)
 	}
 }
 
@@ -698,12 +792,39 @@ func TestSupportEmptyStateRenders(t *testing.T) {
 	}
 }
 
-func TestReferralCreditAppliedOnce(t *testing.T) {
+func TestMarketRendersFreeAndCurrentPlan(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Pro', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO products (id, name, price, time, concurrents, vip, api_access) VALUES (1, 'Pro', 10, 60, 1, 0, 0)"); err != nil {
+		t.Fatalf("insert product: %v", err)
+	}
+
+	sess := createSession("alice", nil)
+	req := httptest.NewRequest(http.MethodGet, "/market", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	rr := httptest.NewRecorder()
+	handlePage("market.html")(rr, req)
+
+	if rr.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected ok, got %d", rr.Result().StatusCode)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "ALWAYS FREE") {
+		t.Fatalf("expected Free plan card")
+	}
+	if !strings.Contains(body, "CURRENT PLAN") {
+		t.Fatalf("expected current plan marker")
+	}
+}
+
+func TestReferralCreditAppliesPerPurchaseAndIsIdempotent(t *testing.T) {
 	setupTestDB(t)
 	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('referrer', 'x', 'Free', 'Active', 'tok', 'u#1', 0, 'REFCODE', '', 0, 0)"); err != nil {
 		t.Fatalf("insert referrer: %v", err)
 	}
-	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('buyer', 'x', 'Free', 'Active', 'tok', 'u#2', 30, 'BUYER', 'referrer', 0, 0)"); err != nil {
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('buyer', 'x', 'Free', 'Active', 'tok', 'u#2', 50, 'BUYER', 'referrer', 0, 0)"); err != nil {
 		t.Fatalf("insert buyer: %v", err)
 	}
 	if _, err := db.Exec("INSERT INTO products (id, name, price, time, concurrents, vip, api_access) VALUES (1, 'Pro', 10, 60, 1, 0, 0)"); err != nil {
@@ -711,7 +832,7 @@ func TestReferralCreditAppliedOnce(t *testing.T) {
 	}
 
 	sess := createSession("buyer", nil)
-	body := url.Values{"csrf_token": {"csrf-token"}}.Encode()
+	body := url.Values{"csrf_token": {"csrf-token"}, "request_id": {"req-1"}}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/api/market/purchase?id=1", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
@@ -729,12 +850,55 @@ func TestReferralCreditAppliedOnce(t *testing.T) {
 		t.Fatalf("expected redirect, got %d", rr.Result().StatusCode)
 	}
 
+	body = url.Values{"csrf_token": {"csrf-token"}, "request_id": {"req-2"}}.Encode()
+	req = httptest.NewRequest(http.MethodPost, "/api/market/purchase?id=1", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	rr = httptest.NewRecorder()
+	handlePurchase(rr, req)
+	if rr.Result().StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", rr.Result().StatusCode)
+	}
+
 	var earnings float64
-	if err := db.QueryRow("SELECT ref_earnings FROM users WHERE username='referrer'").Scan(&earnings); err != nil {
+	if err := db.QueryRow("SELECT COALESCE(SUM(amount), 0) FROM referral_credits WHERE referrer='referrer'").Scan(&earnings); err != nil {
 		t.Fatalf("query earnings: %v", err)
 	}
-	if earnings != roundFloat(10*cfg.ReferralPercent, 2) {
-		t.Fatalf("expected single referral credit, got %v", earnings)
+	expected := roundFloat(2*10*cfg.ReferralPercent, 2)
+	if earnings != expected {
+		t.Fatalf("expected referral credit %v, got %v", expected, earnings)
+	}
+}
+
+func TestReferralCreditSkipsSelfReferral(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('buyer', 'x', 'Free', 'Active', 'tok', 'u#2', 50, 'BUYER', 'buyer', 0, 0)"); err != nil {
+		t.Fatalf("insert buyer: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO products (id, name, price, time, concurrents, vip, api_access) VALUES (1, 'Pro', 10, 60, 1, 0, 0)"); err != nil {
+		t.Fatalf("insert product: %v", err)
+	}
+
+	sess := createSession("buyer", nil)
+	body := url.Values{"csrf_token": {"csrf-token"}, "request_id": {"self-ref"}}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/api/market/purchase?id=1", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+
+	rr := httptest.NewRecorder()
+	handlePurchase(rr, req)
+	if rr.Result().StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", rr.Result().StatusCode)
+	}
+
+	var count int
+	if err := db.QueryRow("SELECT count(*) FROM referral_credits").Scan(&count); err != nil {
+		t.Fatalf("query referral credits: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected no referral credits, got %d", count)
 	}
 }
 

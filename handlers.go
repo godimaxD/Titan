@@ -665,6 +665,9 @@ func handlePurchase(w http.ResponseWriter, r *http.Request) {
 		Message:   "Purchase attempt started.",
 	})
 	requestID := strings.TrimSpace(r.FormValue("request_id"))
+	if requestID == "" {
+		requestID = generateToken()
+	}
 	id, _ := strconv.Atoi(r.URL.Query().Get("id"))
 	tx, err := db.Begin()
 	if err != nil {
@@ -690,32 +693,29 @@ func handlePurchase(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/market?err=prod", http.StatusFound)
 		return
 	}
-	if requestID != "" {
-		res, err := tx.Exec("INSERT OR IGNORE INTO idempotency_keys (key, user_id, action, reference_id, created_at) VALUES (?, ?, ?, ?, ?)", requestID, username, "purchase", strconv.Itoa(id), time.Now().Unix())
-		if err != nil {
-			http.Redirect(w, r, "/market?err=db", http.StatusFound)
-			return
-		}
-		if rows, _ := res.RowsAffected(); rows == 0 {
-			LogActivity(r, ActivityLogEntry{
-				ActorType: actorTypeUser,
-				ActorID:   getUserIDByUsername(username),
-				Username:  username,
-				Action:    "PURCHASE_IDEMPOTENCY_BLOCKED",
-				Severity:  severityWarn,
-				Message:   "Purchase blocked due to idempotency key reuse.",
-				ResourceIDs: map[string]string{
-					"product_id": strconv.Itoa(id),
-				},
-			})
-			http.Redirect(w, r, "/market?err=duplicate", http.StatusFound)
-			return
-		}
+	res, err := tx.Exec("INSERT OR IGNORE INTO idempotency_keys (key, user_id, action, reference_id, created_at) VALUES (?, ?, ?, ?, ?)", requestID, username, "purchase", strconv.Itoa(id), time.Now().Unix())
+	if err != nil {
+		http.Redirect(w, r, "/market?err=db", http.StatusFound)
+		return
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		LogActivity(r, ActivityLogEntry{
+			ActorType: actorTypeUser,
+			ActorID:   getUserIDByUsername(username),
+			Username:  username,
+			Action:    "PURCHASE_IDEMPOTENCY_BLOCKED",
+			Severity:  severityWarn,
+			Message:   "Purchase blocked due to idempotency key reuse.",
+			ResourceIDs: map[string]string{
+				"product_id": strconv.Itoa(id),
+			},
+		})
+		http.Redirect(w, r, "/market?err=duplicate", http.StatusFound)
+		return
 	}
 	var balance float64
 	var referrer string
-	var refPaid int
-	err = tx.QueryRow("SELECT balance, referred_by, ref_paid FROM users WHERE username=?", username).Scan(&balance, &referrer, &refPaid)
+	err = tx.QueryRow("SELECT balance, referred_by FROM users WHERE username=?", username).Scan(&balance, &referrer)
 	if err != nil {
 		http.Redirect(w, r, "/market?err=user", http.StatusFound)
 		return
@@ -742,15 +742,18 @@ func handlePurchase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if referrer != "" && referrer != username && refPaid == 0 {
+	if referrer != "" && referrer != username && p.Price > 0 {
 		kickback := roundFloat(p.Price*cfg.ReferralPercent, 2)
-		if _, err := tx.Exec("UPDATE users SET balance=balance+?, ref_earnings=ref_earnings+? WHERE username=?", kickback, kickback, referrer); err != nil {
+		res, err := tx.Exec("INSERT OR IGNORE INTO referral_credits (purchase_key, buyer, referrer, amount, product_id, created_at) VALUES (?, ?, ?, ?, ?, ?)", requestID, username, referrer, kickback, id, time.Now().Format("2006-01-02 15:04:05"))
+		if err != nil {
 			http.Redirect(w, r, "/market?err=db", http.StatusFound)
 			return
 		}
-		if _, err := tx.Exec("UPDATE users SET ref_paid=1 WHERE username=?", username); err != nil {
-			http.Redirect(w, r, "/market?err=db", http.StatusFound)
-			return
+		if rows, _ := res.RowsAffected(); rows > 0 {
+			if _, err := tx.Exec("UPDATE users SET balance=balance+?, ref_earnings=ref_earnings+? WHERE username=?", kickback, kickback, referrer); err != nil {
+				http.Redirect(w, r, "/market?err=db", http.StatusFound)
+				return
+			}
 		}
 	}
 
@@ -972,9 +975,11 @@ func handlePanelAttack(w http.ResponseWriter, r *http.Request) {
 	d.Port = strings.TrimSpace(d.Port)
 	d.Time = strings.TrimSpace(d.Time)
 	d.Concurrency = strings.TrimSpace(d.Concurrency)
+	d.Layer = strings.ToLower(strings.TrimSpace(d.Layer))
 
 	var u User
 	_ = db.QueryRow("SELECT plan FROM users WHERE username=?", username).Scan(&u.Plan)
+	u.Plan = effectivePlanName(u.Plan)
 	limits := getPlanConfig(u.Plan)
 	reqTime, err := strconv.Atoi(d.Time)
 	if err != nil || reqTime <= 0 {
@@ -1003,10 +1008,24 @@ func handlePanelAttack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate method against admin-managed methods.
+	// Validate method against admin-managed methods and ensure layer matches.
 	var cmd string
-	if err := db.QueryRow("SELECT command FROM methods WHERE name=? AND enabled=1", d.Method).Scan(&cmd); err != nil {
+	var dbLayer string
+	if err := db.QueryRow("SELECT layer, command FROM methods WHERE name=? AND enabled=1", d.Method).Scan(&dbLayer, &cmd); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid_method", "Selected method is not available.")
+		return
+	}
+	layer := strings.ToLower(strings.TrimSpace(d.Layer))
+	dbLayer = strings.ToLower(strings.TrimSpace(dbLayer))
+	if layer == "" {
+		layer = dbLayer
+	}
+	if layer != "layer4" && layer != "layer7" {
+		writeJSONError(w, http.StatusBadRequest, "invalid_layer", "Layer is required.")
+		return
+	}
+	if dbLayer != layer {
+		writeJSONError(w, http.StatusBadRequest, "invalid_method", "Selected method is not available for this layer.")
 		return
 	}
 
@@ -1141,9 +1160,15 @@ func handlePage(pName string) http.HandlerFunc {
 			http.Redirect(w, r, "/logout", 302)
 			return
 		}
+		if strings.TrimSpace(u.Plan) == "" {
+			u.Plan = "Free"
+			_, _ = db.Exec("UPDATE users SET plan='Free' WHERE username=?", u.Username)
+		}
+		u.Plan = effectivePlanName(u.Plan)
 
 		var refCount int
 		db.QueryRow("SELECT count(*) FROM users WHERE referred_by=?", u.Username).Scan(&refCount)
+		refEarnings := getReferralEarnings(u.Username)
 		var products []Product
 		rows, _ := db.Query("SELECT id, name, price, time, concurrents, vip, api_access FROM products")
 		if rows != nil {
@@ -1185,6 +1210,7 @@ func handlePage(pName string) http.HandlerFunc {
 		// Load methods from DB so panel matches admin configuration
 		methodsMap, mBytes := loadMethodsFromDB()
 		limits := getPlanConfig(u.Plan)
+		freePlan := getPlanConfig("Free")
 		flashMessage, flashType := panelFlashMessage(r)
 		if flashMessage == "" {
 			flashMessage, flashType = flashMessageFromQuery(r)
@@ -1202,7 +1228,7 @@ func handlePage(pName string) http.HandlerFunc {
 			Methods:          methodsMap,
 			RefCode:          u.RefCode,
 			ReferredBy:       u.ReferredBy,
-			RefEarnings:      u.RefEarnings,
+			RefEarnings:      refEarnings,
 			UsernameInitials: usernameInitials(u.Username),
 			ApiToken:         u.ApiToken,
 			RefCount:         refCount,
@@ -1213,6 +1239,7 @@ func handlePage(pName string) http.HandlerFunc {
 			FlashMessage:     flashMessage,
 			FlashType:        flashType,
 			RequestID:        generateToken(),
+			FreePlan:         freePlan,
 		}
 		renderTemplate(w, pName, pd)
 	}
@@ -1224,6 +1251,11 @@ func buildPanelFormData(username, csrfToken string) (PageData, error) {
 		Scan(&u.Username, &u.Plan, &u.Balance, &u.ApiToken); err != nil {
 		return PageData{}, err
 	}
+	if strings.TrimSpace(u.Plan) == "" {
+		u.Plan = "Free"
+		_, _ = db.Exec("UPDATE users SET plan='Free' WHERE username=?", u.Username)
+	}
+	u.Plan = effectivePlanName(u.Plan)
 	methodsMap, _ := loadMethodsFromDB()
 	limits := getPlanConfig(u.Plan)
 	return PageData{

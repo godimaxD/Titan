@@ -98,6 +98,7 @@ type PageData struct {
 	FormError                                                                  string
 	FieldErrors                                                                map[string]string
 	FormValues                                                                 map[string]string
+	FreePlan                                                                   PlanConfig
 }
 
 type InvoiceData struct {
@@ -153,7 +154,9 @@ type AdminData struct {
 }
 
 type BlacklistEntry struct{ Target, Reason, Date string }
-type ApiReq struct{ Target, Method, Port, Time, Concurrency, Location string }
+type ApiReq struct {
+	Target, Method, Port, Time, Concurrency, Location, Layer string
+}
 type BinancePrice struct {
 	Price string `json:"price"`
 }
