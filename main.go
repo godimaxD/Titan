@@ -42,6 +42,9 @@ var cfg = AppConfig{
 
 func main() {
 	initDB()
+	if err := initActivityLogger(); err != nil {
+		log.Fatalf("activity logger init failed: %v", err)
+	}
 	startTime = time.Now()
 	go resetC2()
 
@@ -64,62 +67,67 @@ func main() {
 		}
 	}()
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/", wrapHandler(func(w http.ResponseWriter, r *http.Request) {
 		setSecurityHeaders(w)
 		if r.URL.Path != "/" {
 			http.Redirect(w, r, "/", 302)
 			return
 		}
 		renderTemplate(w, "landing.html", nil)
-	})
+	}))
 
 	http.Handle("/captcha/", captcha.Server(240, 80))
-	http.HandleFunc("/login", handleLogin)
-	http.HandleFunc("/register", handleRegister)
-	http.HandleFunc("/logout", handleLogout)
-	http.HandleFunc("/admin", handleAdminPage)
+	http.HandleFunc("/login", wrapHandler(handleLogin))
+	http.HandleFunc("/register", wrapHandler(handleRegister))
+	http.HandleFunc("/logout", wrapHandler(handleLogout))
+	http.HandleFunc("/admin", wrapHandler(handleAdminPage))
 
 	for _, p := range []string{"dashboard", "panel", "status", "deposit", "market", "support", "documentation", "profile"} {
-		http.HandleFunc("/"+p, handlePage(p+".html"))
+		http.HandleFunc("/"+p, wrapHandler(handlePage(p+".html")))
 	}
-	http.HandleFunc("/panel/l4", handlePanelL4Page)
-	http.HandleFunc("/panel/l7", handlePanelL7Page)
-	http.HandleFunc("/panel/l4/submit", handlePanelL4Submit)
-	http.HandleFunc("/panel/l7/submit", handlePanelL7Submit)
+	http.HandleFunc("/panel/l4", wrapHandler(handlePanelL4Page))
+	http.HandleFunc("/panel/l7", wrapHandler(handlePanelL7Page))
+	http.HandleFunc("/panel/l4/submit", wrapHandler(handlePanelL4Submit))
+	http.HandleFunc("/panel/l7/submit", wrapHandler(handlePanelL7Submit))
 
-	http.HandleFunc("/invoice", handleInvoicePage)
-	http.HandleFunc("/deposit/pay", handleDepositPayPage)
-	http.HandleFunc("/receipt", handleReceiptPage)
-	http.HandleFunc("/receipt/download", handleReceiptDownload)
-	http.HandleFunc("/api/deposit/create", handleCreateDeposit)
-	http.HandleFunc("/api/deposit/check", handleCheckDeposit)
-	http.HandleFunc("/api/admin/add-wallet", handleAddWallet)
-	http.HandleFunc("/api/admin/del-wallet", handleDelWallet)
-	http.HandleFunc("/api/market/purchase", handlePurchase)
-	http.HandleFunc("/api/user/info", handleUserInfo)
-	http.HandleFunc("/api/captcha/new", handleNewCaptcha)
-	http.HandleFunc("/api/attack", handlePanelAttack)
-	http.HandleFunc("/api/attack/list", apiList)
-	http.HandleFunc("/api/attack/stop", apiStop)
-	http.HandleFunc("/api/attack/stopAll", apiStopAll)
-	http.HandleFunc("/api/admin/gen-code", handleGenCode)
-	http.HandleFunc("/api/admin/config-plans", handleConfigPlans)
-	http.HandleFunc("/api/admin/add-product", handleAddProduct)
-	http.HandleFunc("/api/admin/del-product", handleDelProduct)
-	http.HandleFunc("/api/admin/blacklist", handleBlacklistOp)
-	http.HandleFunc("/api/admin/upload-method", handleUploadMethod)
-	http.HandleFunc("/api/admin/deposit/action", handleDepositAction)
-	http.HandleFunc("/api/ticket/create", handleCreateTicket)
-	http.HandleFunc("/api/ticket/reply", handleReplyTicket)
+	http.HandleFunc("/invoice", wrapHandler(handleInvoicePage))
+	http.HandleFunc("/deposit/pay", wrapHandler(handleDepositPayPage))
+	http.HandleFunc("/receipt", wrapHandler(handleReceiptPage))
+	http.HandleFunc("/receipt/download", wrapHandler(handleReceiptDownload))
+	http.HandleFunc("/api/deposit/create", wrapHandler(handleCreateDeposit))
+	http.HandleFunc("/api/deposit/check", wrapHandler(handleCheckDeposit))
+	http.HandleFunc("/api/admin/add-wallet", wrapHandler(handleAddWallet))
+	http.HandleFunc("/api/admin/del-wallet", wrapHandler(handleDelWallet))
+	http.HandleFunc("/api/market/purchase", wrapHandler(handlePurchase))
+	http.HandleFunc("/api/user/info", wrapHandler(handleUserInfo))
+	http.HandleFunc("/api/captcha/new", wrapHandler(handleNewCaptcha))
+	http.HandleFunc("/api/attack", wrapHandler(handlePanelAttack))
+	http.HandleFunc("/api/attack/list", wrapHandler(apiList))
+	http.HandleFunc("/api/attack/stop", wrapHandler(apiStop))
+	http.HandleFunc("/api/attack/stopAll", wrapHandler(apiStopAll))
+	http.HandleFunc("/api/admin/gen-code", wrapHandler(handleGenCode))
+	http.HandleFunc("/api/admin/config-plans", wrapHandler(handleConfigPlans))
+	http.HandleFunc("/api/admin/add-product", wrapHandler(handleAddProduct))
+	http.HandleFunc("/api/admin/del-product", wrapHandler(handleDelProduct))
+	http.HandleFunc("/api/admin/blacklist", wrapHandler(handleBlacklistOp))
+	http.HandleFunc("/api/admin/upload-method", wrapHandler(handleUploadMethod))
+	http.HandleFunc("/api/admin/deposit/action", wrapHandler(handleDepositAction))
+	http.HandleFunc("/api/ticket/create", wrapHandler(handleCreateTicket))
+	http.HandleFunc("/api/ticket/reply", wrapHandler(handleReplyTicket))
 	// Profile/account APIs
-	http.HandleFunc("/api/user/change-password", handleChangePassword)
-	http.HandleFunc("/api/user/token/rotate", handleRotateToken)
-	http.HandleFunc("/api/user/sessions", handleListSessions)
-	http.HandleFunc("/api/user/sessions/revoke", handleRevokeSession)
-	http.HandleFunc("/api/user/sessions/revoke-all", handleRevokeAllSessions)
+	http.HandleFunc("/api/user/change-password", wrapHandler(handleChangePassword))
+	http.HandleFunc("/api/user/token/rotate", wrapHandler(handleRotateToken))
+	http.HandleFunc("/api/user/sessions", wrapHandler(handleListSessions))
+	http.HandleFunc("/api/user/sessions/revoke", wrapHandler(handleRevokeSession))
+	http.HandleFunc("/api/user/sessions/revoke-all", wrapHandler(handleRevokeAllSessions))
 	// Public token API
-	http.HandleFunc("/api/launch", apiLaunch)
-	http.HandleFunc("/redeem-login", handleRedeemLogin)
+	http.HandleFunc("/api/launch", wrapHandler(apiLaunch))
+	http.HandleFunc("/redeem-login", wrapHandler(handleRedeemLogin))
+	// Activity log admin APIs
+	http.HandleFunc("/api/admin/activity/search", wrapHandler(handleActivitySearch))
+	http.HandleFunc("/api/admin/activity/export", wrapHandler(handleActivityExport))
+	http.HandleFunc("/api/admin/activity/actions", wrapHandler(handleActivityActions))
+	http.HandleFunc("/api/admin/activity/download", wrapHandler(handleActivityDownload))
 
 	fmt.Println(">> [TITAN CORE V35 - MODULAR] :8080")
 	if err := http.ListenAndServe(":8080", nil); err != nil {

@@ -36,10 +36,24 @@ const maxBodySize = 64 << 10 // 64KB
 func handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "POST" {
 		if isRateLimited(getIP(r)) {
+			LogActivity(r, ActivityLogEntry{
+				ActorType: actorTypeUser,
+				Action:    "AUTH_LOGIN_RATE_LIMIT",
+				Severity:  severityWarn,
+				Username:  Sanitize(r.FormValue("username")),
+				Message:   "Login rate limited.",
+			})
 			http.Redirect(w, r, "/login?err=rate_limit", http.StatusFound)
 			return
 		}
 		if !validateCSRF(r) {
+			LogActivity(r, ActivityLogEntry{
+				ActorType: actorTypeUser,
+				Action:    "AUTH_LOGIN_CSRF_FAIL",
+				Severity:  severityWarn,
+				Username:  Sanitize(r.FormValue("username")),
+				Message:   "Login blocked by CSRF validation.",
+			})
 			http.Redirect(w, r, "/login?err=csrf", http.StatusFound)
 			return
 		}
@@ -53,16 +67,39 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 			db.Exec("DELETE FROM sessions WHERE username=?", u)
 			token := createSession(u, r)
 			if token == "" {
+				LogActivity(r, ActivityLogEntry{
+					ActorType: actorTypeUser,
+					ActorID:   getUserIDByUsername(u),
+					Username:  u,
+					Action:    "AUTH_LOGIN_FAILED",
+					Severity:  severityError,
+					Message:   "Login failed while creating session.",
+				})
 				http.Redirect(w, r, "/login?err=session", http.StatusFound)
 				return
 			}
 			setSessionCookie(w, r, token, 86400)
+			LogActivity(r, ActivityLogEntry{
+				ActorType: actorTypeUser,
+				ActorID:   getUserIDByUsername(u),
+				Username:  u,
+				Action:    "AUTH_LOGIN_SUCCESS",
+				Severity:  severityInfo,
+				Message:   "User logged in successfully.",
+			})
 			if u == "admin" {
 				http.Redirect(w, r, "/admin?view=overview", http.StatusFound)
 			} else {
 				http.Redirect(w, r, "/dashboard?welcome=true", http.StatusFound)
 			}
 		} else {
+			LogActivity(r, ActivityLogEntry{
+				ActorType: actorTypeUser,
+				Username:  u,
+				Action:    "AUTH_LOGIN_FAILED",
+				Severity:  severityWarn,
+				Message:   "Login failed due to invalid credentials.",
+			})
 			http.Redirect(w, r, "/login?err=invalid", http.StatusFound)
 		}
 		return
@@ -105,10 +142,24 @@ func handleUserInfo(w http.ResponseWriter, r *http.Request) {
 func handleRegister(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "POST" {
 		if isRateLimited(getIP(r)) {
+			LogActivity(r, ActivityLogEntry{
+				ActorType: actorTypeUser,
+				Action:    "AUTH_REGISTER_RATE_LIMIT",
+				Severity:  severityWarn,
+				Username:  Sanitize(r.FormValue("username")),
+				Message:   "Registration rate limited.",
+			})
 			http.Redirect(w, r, "/register?err=rate_limit", http.StatusFound)
 			return
 		}
 		if !validateCSRF(r) {
+			LogActivity(r, ActivityLogEntry{
+				ActorType: actorTypeUser,
+				Action:    "AUTH_REGISTER_CSRF_FAIL",
+				Severity:  severityWarn,
+				Username:  Sanitize(r.FormValue("username")),
+				Message:   "Registration blocked by CSRF validation.",
+			})
 			http.Redirect(w, r, "/register?err=csrf", http.StatusFound)
 			return
 		}
@@ -119,6 +170,13 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 		captchaSolution := r.FormValue("captcha")
 
 		if !captchaVerify(captchaId, captchaSolution) {
+			LogActivity(r, ActivityLogEntry{
+				ActorType: actorTypeUser,
+				Action:    "AUTH_REGISTER_CAPTCHA_FAIL",
+				Severity:  severityWarn,
+				Username:  u,
+				Message:   "Registration failed due to captcha validation.",
+			})
 			http.Redirect(w, r, "/register?err=captcha_wrong", http.StatusFound)
 			return
 		}
@@ -137,6 +195,16 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 			if refCode != "" {
 				if err := db.QueryRow("SELECT username FROM users WHERE ref_code=?", refCode).Scan(&validRef); err != nil {
 					if err == sql.ErrNoRows {
+						LogActivity(r, ActivityLogEntry{
+							ActorType: actorTypeUser,
+							Action:    "REFERRAL_INVALID",
+							Severity:  severityWarn,
+							Username:  u,
+							Message:   "Registration failed due to invalid referral code.",
+							Metadata: map[string]interface{}{
+								"ref_code": refCode,
+							},
+						})
 						http.Redirect(w, r, "/register?err=bad_ref", http.StatusFound)
 						return
 					}
@@ -145,6 +213,13 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if validRef == u {
+				LogActivity(r, ActivityLogEntry{
+					ActorType: actorTypeUser,
+					Action:    "REFERRAL_INVALID",
+					Severity:  severityWarn,
+					Username:  u,
+					Message:   "Registration failed due to self-referral.",
+				})
 				http.Redirect(w, r, "/register?err=bad_ref", http.StatusFound)
 				return
 			}
@@ -155,8 +230,26 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			setSessionCookie(w, r, token, 86400)
+			LogActivity(r, ActivityLogEntry{
+				ActorType: actorTypeUser,
+				ActorID:   getUserIDByUsername(u),
+				Username:  u,
+				Action:    "AUTH_REGISTER_SUCCESS",
+				Severity:  severityInfo,
+				Message:   "User registered successfully.",
+				Metadata: map[string]interface{}{
+					"referred_by": validRef,
+				},
+			})
 			http.Redirect(w, r, "/dashboard?welcome=true", http.StatusFound)
 		} else {
+			LogActivity(r, ActivityLogEntry{
+				ActorType: actorTypeUser,
+				Action:    "AUTH_REGISTER_FAILED",
+				Severity:  severityWarn,
+				Username:  u,
+				Message:   "Registration failed due to duplicate username.",
+			})
 			http.Redirect(w, r, "/register?err=taken", http.StatusFound)
 		}
 		return
@@ -231,9 +324,28 @@ func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
 			_ = tx.QueryRow("SELECT reference_id FROM idempotency_keys WHERE key=? AND user_id=? AND action=?", requestID, username, "deposit").Scan(&existing)
 			tx.Rollback()
 			if existing != "" {
+				LogActivity(r, ActivityLogEntry{
+					ActorType: actorTypeUser,
+					ActorID:   getUserIDByUsername(username),
+					Username:  username,
+					Action:    "DEPOSIT_IDEMPOTENCY_BLOCKED",
+					Severity:  severityWarn,
+					Message:   "Deposit request blocked due to idempotency key reuse.",
+					ResourceIDs: map[string]string{
+						"deposit_id": existing,
+					},
+				})
 				http.Redirect(w, r, "/deposit/pay?id="+existing+"&msg=deposit_exists", http.StatusFound)
 				return
 			}
+			LogActivity(r, ActivityLogEntry{
+				ActorType: actorTypeUser,
+				ActorID:   getUserIDByUsername(username),
+				Username:  username,
+				Action:    "DEPOSIT_IDEMPOTENCY_BLOCKED",
+				Severity:  severityWarn,
+				Message:   "Deposit request blocked due to duplicate submission.",
+			})
 			http.Redirect(w, r, "/deposit?err=duplicate", http.StatusFound)
 			return
 		}
@@ -269,6 +381,22 @@ func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	LogActivity(r, ActivityLogEntry{
+		ActorType: actorTypeUser,
+		ActorID:   getUserIDByUsername(username),
+		Username:  username,
+		Action:    "DEPOSIT_CREATED",
+		Severity:  severityInfo,
+		Message:   "Deposit created.",
+		ResourceIDs: map[string]string{
+			"deposit_id": depID,
+		},
+		Metadata: map[string]interface{}{
+			"usd_amount": usdAmt,
+			"trx_amount": trxAmount,
+			"wallet":     maskAddress(walletAddr),
+		},
+	})
 	http.Redirect(w, r, "/deposit/pay?id="+depID+"&msg=deposit_created", http.StatusFound)
 }
 
@@ -338,6 +466,17 @@ func handleReceiptPage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	LogActivity(r, ActivityLogEntry{
+		ActorType: actorTypeUser,
+		ActorID:   data.UserID,
+		Username:  data.Username,
+		Action:    "RECEIPT_VIEW",
+		Severity:  severityInfo,
+		Message:   "Receipt viewed.",
+		ResourceIDs: map[string]string{
+			"deposit_id": data.ID,
+		},
+	})
 	renderTemplate(w, "receipt.html", data)
 }
 
@@ -348,6 +487,17 @@ func handleReceiptDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data.IsDownload = true
+	LogActivity(r, ActivityLogEntry{
+		ActorType: actorTypeUser,
+		ActorID:   data.UserID,
+		Username:  data.Username,
+		Action:    "RECEIPT_DOWNLOAD",
+		Severity:  severityInfo,
+		Message:   "Receipt downloaded.",
+		ResourceIDs: map[string]string{
+			"deposit_id": data.ID,
+		},
+	})
 	filename := fmt.Sprintf("receipt-%s.html", data.ID)
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -506,6 +656,14 @@ func handlePurchase(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
 		return
 	}
+	LogActivity(r, ActivityLogEntry{
+		ActorType: actorTypeUser,
+		ActorID:   getUserIDByUsername(username),
+		Username:  username,
+		Action:    "PURCHASE_ATTEMPT",
+		Severity:  severityInfo,
+		Message:   "Purchase attempt started.",
+	})
 	requestID := strings.TrimSpace(r.FormValue("request_id"))
 	id, _ := strconv.Atoi(r.URL.Query().Get("id"))
 	tx, err := db.Begin()
@@ -518,6 +676,17 @@ func handlePurchase(w http.ResponseWriter, r *http.Request) {
 	var p Product
 	err = tx.QueryRow("SELECT name, price, time, concurrents, vip, api_access FROM products WHERE id=?", id).Scan(&p.Name, &p.Price, &p.Time, &p.Concurrents, &p.VIP, &p.APIAccess)
 	if err != nil {
+		LogActivity(r, ActivityLogEntry{
+			ActorType: actorTypeUser,
+			ActorID:   getUserIDByUsername(username),
+			Username:  username,
+			Action:    "PURCHASE_FAILED",
+			Severity:  severityWarn,
+			Message:   "Purchase failed because the product was not found.",
+			ResourceIDs: map[string]string{
+				"product_id": strconv.Itoa(id),
+			},
+		})
 		http.Redirect(w, r, "/market?err=prod", http.StatusFound)
 		return
 	}
@@ -528,6 +697,17 @@ func handlePurchase(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if rows, _ := res.RowsAffected(); rows == 0 {
+			LogActivity(r, ActivityLogEntry{
+				ActorType: actorTypeUser,
+				ActorID:   getUserIDByUsername(username),
+				Username:  username,
+				Action:    "PURCHASE_IDEMPOTENCY_BLOCKED",
+				Severity:  severityWarn,
+				Message:   "Purchase blocked due to idempotency key reuse.",
+				ResourceIDs: map[string]string{
+					"product_id": strconv.Itoa(id),
+				},
+			})
 			http.Redirect(w, r, "/market?err=duplicate", http.StatusFound)
 			return
 		}
@@ -541,6 +721,17 @@ func handlePurchase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if roundFloat(balance, 2) < roundFloat(p.Price, 2) {
+		LogActivity(r, ActivityLogEntry{
+			ActorType: actorTypeUser,
+			ActorID:   getUserIDByUsername(username),
+			Username:  username,
+			Action:    "PURCHASE_FAILED",
+			Severity:  severityWarn,
+			Message:   "Purchase failed due to insufficient balance.",
+			ResourceIDs: map[string]string{
+				"product_id": strconv.Itoa(id),
+			},
+		})
 		http.Redirect(w, r, "/deposit?err=balance", http.StatusFound)
 		return
 	}
@@ -579,6 +770,21 @@ func handlePurchase(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/market?err=db", http.StatusFound)
 		return
 	}
+	LogActivity(r, ActivityLogEntry{
+		ActorType: actorTypeUser,
+		ActorID:   getUserIDByUsername(username),
+		Username:  username,
+		Action:    "PURCHASE_SUCCESS",
+		Severity:  severityInfo,
+		Message:   "Purchase completed successfully.",
+		ResourceIDs: map[string]string{
+			"product_id": strconv.Itoa(id),
+		},
+		Metadata: map[string]interface{}{
+			"plan":  p.Name,
+			"price": p.Price,
+		},
+	})
 	http.Redirect(w, r, "/dashboard?msg=plan_activated", http.StatusFound)
 }
 
@@ -1302,11 +1508,22 @@ func handlePanelL7Submit(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLogout(w http.ResponseWriter, r *http.Request) {
+	username, ok := validateSession(r)
 	c, err := r.Cookie(sessionCookieName)
 	if err == nil {
 		db.Exec("DELETE FROM sessions WHERE token=?", c.Value)
 	}
 	setSessionCookie(w, r, "", -1)
+	if ok {
+		LogActivity(r, ActivityLogEntry{
+			ActorType: actorTypeUser,
+			ActorID:   getUserIDByUsername(username),
+			Username:  username,
+			Action:    "AUTH_LOGOUT",
+			Severity:  severityInfo,
+			Message:   "User logged out.",
+		})
+	}
 	http.Redirect(w, r, "/", 302)
 }
 
@@ -1454,6 +1671,22 @@ func handleConfigPlans(w http.ResponseWriter, r *http.Request) {
 		vip := r.FormValue("vip") == "true"
 		api := r.FormValue("api") == "true"
 		db.Exec("INSERT OR REPLACE INTO plans (name, concurrents, max_time, vip, api) VALUES (?, ?, ?, ?, ?)", name, conc, time, vip, api)
+		LogActivity(r, ActivityLogEntry{
+			ActorType: actorTypeAdmin,
+			Username:  u,
+			Action:    "ADMIN_PLAN_CONFIG",
+			Severity:  severityInfo,
+			Message:   "Plan configuration updated.",
+			ResourceIDs: map[string]string{
+				"plan": name,
+			},
+			Metadata: map[string]interface{}{
+				"concurrents": conc,
+				"max_time":    time,
+				"vip":         vip,
+				"api":         api,
+			},
+		})
 	} else {
 		rows, err := db.Query("SELECT name, api FROM plans")
 		if err == nil {
@@ -1474,6 +1707,22 @@ func handleConfigPlans(w http.ResponseWriter, r *http.Request) {
 				}
 				vip := r.FormValue(planName+"_vip") == "on" || r.FormValue(planName+"_vip") == "true"
 				db.Exec("UPDATE plans SET concurrents=?, max_time=?, vip=?, api=? WHERE name=?", conc, maxTime, vip, api, planName)
+				LogActivity(r, ActivityLogEntry{
+					ActorType: actorTypeAdmin,
+					Username:  u,
+					Action:    "ADMIN_PLAN_CONFIG",
+					Severity:  severityInfo,
+					Message:   "Plan configuration updated.",
+					ResourceIDs: map[string]string{
+						"plan": planName,
+					},
+					Metadata: map[string]interface{}{
+						"concurrents": conc,
+						"max_time":    maxTime,
+						"vip":         vip,
+						"api":         api,
+					},
+				})
 			}
 		}
 	}
@@ -1500,6 +1749,21 @@ func handleAddProduct(w http.ResponseWriter, r *http.Request) {
 	vip := r.FormValue("vip") == "on"
 	api := r.FormValue("api") == "on"
 	db.Exec("INSERT INTO products (name, price, time, concurrents, vip, api_access) VALUES (?, ?, ?, ?, ?, ?)", name, price, dur, conc, vip, api)
+	LogActivity(r, ActivityLogEntry{
+		ActorType: actorTypeAdmin,
+		Username:  u,
+		Action:    "ADMIN_PRODUCT_ADD",
+		Severity:  severityInfo,
+		Message:   "Product added.",
+		Metadata: map[string]interface{}{
+			"name":        name,
+			"price":       price,
+			"time":        dur,
+			"concurrents": conc,
+			"vip":         vip,
+			"api_access":  api,
+		},
+	})
 	http.Redirect(w, r, "/admin?view=market", 302)
 }
 
@@ -1516,7 +1780,18 @@ func handleDelProduct(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
 		return
 	}
-	db.Exec("DELETE FROM products WHERE id = ?", r.FormValue("id"))
+	productID := r.FormValue("id")
+	db.Exec("DELETE FROM products WHERE id = ?", productID)
+	LogActivity(r, ActivityLogEntry{
+		ActorType: actorTypeAdmin,
+		Username:  username,
+		Action:    "ADMIN_PRODUCT_DELETE",
+		Severity:  severityInfo,
+		Message:   "Product deleted.",
+		ResourceIDs: map[string]string{
+			"product_id": productID,
+		},
+	})
 	http.Redirect(w, r, "/admin?view=market", 302)
 }
 
@@ -1533,7 +1808,18 @@ func handleAddWallet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
 		return
 	}
-	db.Exec("INSERT INTO wallets(address, private_key, status, assigned_to) VALUES (?, ?, 'Free', '')", Sanitize(r.FormValue("address")), r.FormValue("private_key"))
+	address := Sanitize(r.FormValue("address"))
+	db.Exec("INSERT INTO wallets(address, private_key, status, assigned_to) VALUES (?, ?, 'Free', '')", address, r.FormValue("private_key"))
+	LogActivity(r, ActivityLogEntry{
+		ActorType: actorTypeAdmin,
+		Username:  username,
+		Action:    "ADMIN_WALLET_ADD",
+		Severity:  severityInfo,
+		Message:   "Wallet added.",
+		Metadata: map[string]interface{}{
+			"address": maskAddress(address),
+		},
+	})
 	http.Redirect(w, r, "/admin?view=finance", 302)
 }
 
@@ -1550,7 +1836,18 @@ func handleDelWallet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "CSRF Validation Failed", http.StatusForbidden)
 		return
 	}
-	db.Exec("DELETE FROM wallets WHERE address=?", Sanitize(r.FormValue("address")))
+	address := Sanitize(r.FormValue("address"))
+	db.Exec("DELETE FROM wallets WHERE address=?", address)
+	LogActivity(r, ActivityLogEntry{
+		ActorType: actorTypeAdmin,
+		Username:  username,
+		Action:    "ADMIN_WALLET_DELETE",
+		Severity:  severityInfo,
+		Message:   "Wallet deleted.",
+		Metadata: map[string]interface{}{
+			"address": maskAddress(address),
+		},
+	})
 	http.Redirect(w, r, "/admin?view=finance", 302)
 }
 
@@ -1570,9 +1867,33 @@ func handleBlacklistOp(w http.ResponseWriter, r *http.Request) {
 	action := r.FormValue("action")
 	target := Sanitize(r.FormValue("target"))
 	if action == "add" {
-		db.Exec("INSERT INTO blacklist VALUES (?, ?, ?)", target, Sanitize(r.FormValue("reason")), time.Now().Format("2006-01-02"))
+		reason := Sanitize(r.FormValue("reason"))
+		db.Exec("INSERT INTO blacklist VALUES (?, ?, ?)", target, reason, time.Now().Format("2006-01-02"))
+		LogActivity(r, ActivityLogEntry{
+			ActorType: actorTypeAdmin,
+			Username:  username,
+			Action:    "ADMIN_BLACKLIST_ADD",
+			Severity:  severityInfo,
+			Message:   "Blacklist entry added.",
+			ResourceIDs: map[string]string{
+				"target": target,
+			},
+			Metadata: map[string]interface{}{
+				"reason": reason,
+			},
+		})
 	} else {
 		db.Exec("DELETE FROM blacklist WHERE target = ?", target)
+		LogActivity(r, ActivityLogEntry{
+			ActorType: actorTypeAdmin,
+			Username:  username,
+			Action:    "ADMIN_BLACKLIST_DELETE",
+			Severity:  severityInfo,
+			Message:   "Blacklist entry removed.",
+			ResourceIDs: map[string]string{
+				"target": target,
+			},
+		})
 	}
 	http.Redirect(w, r, "/admin?view=blacklist", 302)
 }
@@ -1616,6 +1937,18 @@ func handleUploadMethod(w http.ResponseWriter, r *http.Request) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	_, _ = client.Do(req)
 
+	LogActivity(r, ActivityLogEntry{
+		ActorType: actorTypeAdmin,
+		Username:  u,
+		Action:    "ADMIN_METHOD_UPLOAD",
+		Severity:  severityInfo,
+		Message:   "Attack method uploaded.",
+		Metadata: map[string]interface{}{
+			"name":    name,
+			"layer":   layer,
+			"command": command,
+		},
+	})
 	http.Redirect(w, r, "/admin?view=methods", 302)
 }
 
@@ -1641,9 +1974,33 @@ func handleDepositAction(w http.ResponseWriter, r *http.Request) {
 		db.Exec("UPDATE deposits SET status='Paid', confirmed_at=? WHERE id=?", time.Now().Format("2006-01-02 15:04"), id)
 		db.Exec("UPDATE users SET balance=balance+? WHERE username=?", usd, user)
 		db.Exec("UPDATE wallets SET status='Free', assigned_to='' WHERE assigned_to=?", id)
+		LogActivity(r, ActivityLogEntry{
+			ActorType: actorTypeAdmin,
+			Username:  u,
+			Action:    "DEPOSIT_CONFIRMED",
+			Severity:  severityInfo,
+			Message:   "Deposit confirmed by admin.",
+			ResourceIDs: map[string]string{
+				"deposit_id": id,
+			},
+			Metadata: map[string]interface{}{
+				"user":       user,
+				"usd_amount": usd,
+			},
+		})
 	} else {
 		db.Exec("UPDATE deposits SET status='Rejected' WHERE id=?", id)
 		db.Exec("UPDATE wallets SET status='Free', assigned_to='' WHERE assigned_to=?", id)
+		LogActivity(r, ActivityLogEntry{
+			ActorType: actorTypeAdmin,
+			Username:  u,
+			Action:    "DEPOSIT_REJECTED",
+			Severity:  severityWarn,
+			Message:   "Deposit rejected by admin.",
+			ResourceIDs: map[string]string{
+				"deposit_id": id,
+			},
+		})
 	}
 	http.Redirect(w, r, "/admin?view=finance", 302)
 }
@@ -1679,6 +2036,21 @@ func handleCreateTicket(w http.ResponseWriter, r *http.Request) {
 	msg := []TicketMessage{{Sender: u, Content: message, Time: time.Now().Format("2006-01-02 15:04"), IsAdmin: false}}
 	msgJSON, _ := json.Marshal(msg)
 	db.Exec("INSERT INTO tickets (id, user_id, category, subject, status, last_update, messages) VALUES (?, ?, ?, ?, ?, ?, ?)", tid, u, category, subject, "Open", time.Now(), string(msgJSON))
+	LogActivity(r, ActivityLogEntry{
+		ActorType: actorTypeUser,
+		ActorID:   getUserIDByUsername(u),
+		Username:  u,
+		Action:    "TICKET_CREATED",
+		Severity:  severityInfo,
+		Message:   "Support ticket created.",
+		ResourceIDs: map[string]string{
+			"ticket_id": tid,
+		},
+		Metadata: map[string]interface{}{
+			"category": category,
+			"subject":  subject,
+		},
+	})
 	http.Redirect(w, r, "/support?msg=ticket_created", http.StatusFound)
 }
 
@@ -1722,6 +2094,22 @@ func handleReplyTicket(w http.ResponseWriter, r *http.Request) {
 	}
 	newMsgJSON, _ := json.Marshal(msgs)
 	db.Exec("UPDATE tickets SET messages = ?, status = ?, last_update = ? WHERE id = ?", string(newMsgJSON), status, time.Now(), tid)
+	LogActivity(r, ActivityLogEntry{
+		ActorType: func() string {
+			if isAdmin {
+				return actorTypeAdmin
+			}
+			return actorTypeUser
+		}(),
+		ActorID:  getUserIDByUsername(u),
+		Username: u,
+		Action:   "TICKET_REPLY",
+		Severity: severityInfo,
+		Message:  "Ticket reply added.",
+		ResourceIDs: map[string]string{
+			"ticket_id": tid,
+		},
+	})
 	if isAdmin {
 		http.Redirect(w, r, "/admin?view=tickets&ticket="+tid, 302)
 	} else {
@@ -1784,6 +2172,12 @@ func handleRedeemLogin(w http.ResponseWriter, r *http.Request) {
 
 	var plan string
 	if err := db.QueryRow("SELECT plan FROM redeem_codes WHERE code=? AND used=0", code).Scan(&plan); err != nil {
+		LogActivity(r, ActivityLogEntry{
+			ActorType: actorTypeUser,
+			Action:    "AUTH_REDEEM_FAILED",
+			Severity:  severityWarn,
+			Message:   "Redeem login failed due to invalid code.",
+		})
 		http.Redirect(w, r, "/login?err=invalid_code", http.StatusFound)
 		return
 	}
@@ -1824,6 +2218,17 @@ func handleRedeemLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setSessionCookie(w, r, token, 86400)
+	LogActivity(r, ActivityLogEntry{
+		ActorType: actorTypeUser,
+		ActorID:   getUserIDByUsername(username),
+		Username:  username,
+		Action:    "AUTH_REDEEM_SUCCESS",
+		Severity:  severityInfo,
+		Message:   "Redeem login succeeded.",
+		Metadata: map[string]interface{}{
+			"plan": plan,
+		},
+	})
 	http.Redirect(w, r, "/dashboard?welcome=true", http.StatusFound)
 }
 
@@ -1907,6 +2312,14 @@ func handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	LogActivity(r, ActivityLogEntry{
+		ActorType: actorTypeUser,
+		ActorID:   getUserIDByUsername(username),
+		Username:  username,
+		Action:    "AUTH_PASSWORD_CHANGED",
+		Severity:  severityInfo,
+		Message:   "Password changed successfully.",
+	})
 	json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
 }
 
@@ -1938,6 +2351,14 @@ func handleRotateToken(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, "db_error", "Database error.")
 		return
 	}
+	LogActivity(r, ActivityLogEntry{
+		ActorType: actorTypeUser,
+		ActorID:   getUserIDByUsername(username),
+		Username:  username,
+		Action:    "AUTH_TOKEN_ROTATED",
+		Severity:  severityInfo,
+		Message:   "API token rotated.",
+	})
 	json.NewEncoder(w).Encode(map[string]any{"status": "ok", "token": newTok})
 }
 
@@ -2012,6 +2433,16 @@ func handleRevokeSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	affected, _ := res.RowsAffected()
+	if affected > 0 {
+		LogActivity(r, ActivityLogEntry{
+			ActorType: actorTypeUser,
+			ActorID:   getUserIDByUsername(username),
+			Username:  username,
+			Action:    "AUTH_SESSION_REVOKED",
+			Severity:  severityInfo,
+			Message:   "Session revoked.",
+		})
+	}
 	json.NewEncoder(w).Encode(map[string]any{"status": "ok", "revoked": affected > 0})
 }
 
@@ -2050,5 +2481,16 @@ func handleRevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	affected, _ := res.RowsAffected()
+	LogActivity(r, ActivityLogEntry{
+		ActorType: actorTypeUser,
+		ActorID:   getUserIDByUsername(username),
+		Username:  username,
+		Action:    "AUTH_SESSION_REVOKE_ALL",
+		Severity:  severityInfo,
+		Message:   "All sessions revoked.",
+		Metadata: map[string]interface{}{
+			"revoked_count": affected,
+		},
+	})
 	json.NewEncoder(w).Encode(map[string]any{"status": "ok", "revoked": affected})
 }

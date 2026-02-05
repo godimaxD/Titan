@@ -97,6 +97,10 @@
         ::-webkit-scrollbar { width: 5px; }
         ::-webkit-scrollbar-thumb { background: #52525b; border-radius: 3px; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
+        .terminal-panel { background: #0b0b11; border: 1px solid rgba(255,255,255,0.08); }
+        .terminal-line { border-bottom: 1px solid rgba(255,255,255,0.06); }
+        .terminal-line:last-child { border-bottom: none; }
+        .terminal-highlight { background: rgba(99, 102, 241, 0.2); padding: 0 2px; border-radius: 4px; }
     </style>
 </head>
 <body class="flex h-screen overflow-hidden">
@@ -120,6 +124,7 @@
                     <a href="/admin?view=overview" class="nav-item {{if eq .CurrentView "overview"}}active{{end}}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg> Dashboard</a>
                     <a href="/admin?view=users" class="nav-item {{if eq .CurrentView "users"}}active{{end}}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg> User Database</a>
                     <a href="/admin?view=finance" class="nav-item {{if eq .CurrentView "finance"}}active{{end}}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg> Finance</a>
+                    <a href="/admin?view=activity" class="nav-item {{if eq .CurrentView "activity"}}active{{end}}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M4 6h16M4 12h16M4 18h10"/></svg> Activity Log</a>
                 </div>
             </div>
             
@@ -431,6 +436,256 @@
                 </tbody>
             </table>
         </div>
+        {{end}}
+
+        {{if eq .CurrentView "activity"}}
+        <div class="space-y-6" id="activity-log-app">
+            <div class="card p-4 sticky top-6 z-10">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h3 class="font-bold text-sm uppercase text-gray-500">Terminal / Activity Log</h3>
+                        <p class="text-[10px] text-gray-400 font-mono">Audit trail with advanced filters and export tools.</p>
+                    </div>
+                    <div class="flex items-center gap-3 text-xs">
+                        <label class="flex items-center gap-2 text-gray-500 font-semibold">
+                            <input id="activity-auto-refresh" type="checkbox" class="rounded border-gray-300">
+                            Auto-refresh (3s)
+                        </label>
+                        <button id="activity-refresh" class="btn-primary">Refresh</button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-6 gap-3 text-xs">
+                    <input id="activity-query" class="input-box lg:col-span-2" placeholder="Search message/metadata...">
+                    <input id="activity-from" type="datetime-local" class="input-box">
+                    <input id="activity-to" type="datetime-local" class="input-box">
+                    <select id="activity-actor-type" class="input-box">
+                        <option value="">All Actors</option>
+                        <option value="USER">USER</option>
+                        <option value="ADMIN">ADMIN</option>
+                        <option value="SYSTEM">SYSTEM</option>
+                    </select>
+                    <input id="activity-username" class="input-box" placeholder="Username">
+                    <input id="activity-actor-id" class="input-box" placeholder="User ID">
+                    <select id="activity-actions" class="input-box lg:col-span-2" multiple size="3"></select>
+                    <select id="activity-severity" class="input-box" multiple size="3">
+                        <option value="INFO">INFO</option>
+                        <option value="WARN">WARN</option>
+                        <option value="ERROR">ERROR</option>
+                    </select>
+                    <input id="activity-resource-id" class="input-box" placeholder="Resource ID">
+                    <select id="activity-sort" class="input-box">
+                        <option value="desc">Newest First</option>
+                        <option value="asc">Oldest First</option>
+                    </select>
+                    <select id="activity-page-size" class="input-box">
+                        <option value="25">25 / page</option>
+                        <option value="50" selected>50 / page</option>
+                        <option value="100">100 / page</option>
+                        <option value="200">200 / page</option>
+                    </select>
+                </div>
+                <div class="flex flex-wrap items-center gap-2 mt-4 text-xs">
+                    <button id="activity-search" class="btn-primary">Apply Filters</button>
+                    <button id="activity-reset" class="btn-primary">Reset</button>
+                    <div class="flex items-center gap-2 ml-auto">
+                        <button id="activity-export-jsonl" class="btn-primary">Export JSONL</button>
+                        <button id="activity-export-csv" class="btn-primary">Export CSV</button>
+                        <select id="activity-download-scope" class="input-box">
+                            <option value="current">Current Log</option>
+                            <option value="all">All Logs</option>
+                        </select>
+                        <button id="activity-download" class="btn-primary">Download Logs</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card p-4 terminal-panel text-green-100 font-mono text-xs">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="text-[10px] text-gray-400 uppercase tracking-widest">Live Activity Feed</div>
+                    <div id="activity-meta" class="text-[10px] text-gray-400"></div>
+                </div>
+                <div id="activity-results" class="max-h-[520px] overflow-y-auto pr-2"></div>
+                <div class="flex items-center justify-between mt-4 text-[10px] text-gray-400">
+                    <button id="activity-prev" class="btn-primary">Prev</button>
+                    <div id="activity-page-info"></div>
+                    <button id="activity-next" class="btn-primary">Next</button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            (function() {
+                const app = document.getElementById('activity-log-app');
+                if (!app) return;
+
+                const state = { page: 1, total: 0, pageSize: 50, timer: null };
+                const els = {
+                    query: document.getElementById('activity-query'),
+                    from: document.getElementById('activity-from'),
+                    to: document.getElementById('activity-to'),
+                    actorType: document.getElementById('activity-actor-type'),
+                    username: document.getElementById('activity-username'),
+                    actorId: document.getElementById('activity-actor-id'),
+                    actions: document.getElementById('activity-actions'),
+                    severity: document.getElementById('activity-severity'),
+                    resourceId: document.getElementById('activity-resource-id'),
+                    sort: document.getElementById('activity-sort'),
+                    pageSize: document.getElementById('activity-page-size'),
+                    results: document.getElementById('activity-results'),
+                    meta: document.getElementById('activity-meta'),
+                    pageInfo: document.getElementById('activity-page-info'),
+                    prev: document.getElementById('activity-prev'),
+                    next: document.getElementById('activity-next'),
+                    search: document.getElementById('activity-search'),
+                    reset: document.getElementById('activity-reset'),
+                    refresh: document.getElementById('activity-refresh'),
+                    autoRefresh: document.getElementById('activity-auto-refresh'),
+                    exportJsonl: document.getElementById('activity-export-jsonl'),
+                    exportCsv: document.getElementById('activity-export-csv'),
+                    downloadScope: document.getElementById('activity-download-scope'),
+                    download: document.getElementById('activity-download')
+                };
+
+                function escapeHtml(str) {
+                    return str.replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+                }
+
+                function highlight(text, query) {
+                    if (!query) return escapeHtml(text);
+                    const safe = escapeHtml(text);
+                    const re = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+                    return safe.replace(re, (m) => `<span class="terminal-highlight">${m}</span>`);
+                }
+
+                function selectedValues(select) {
+                    return Array.from(select.options).filter(o => o.selected).map(o => o.value).filter(Boolean);
+                }
+
+                function buildParams() {
+                    const params = new URLSearchParams();
+                    if (els.query.value.trim()) params.set('q', els.query.value.trim());
+                    if (els.from.value) params.set('from', els.from.value);
+                    if (els.to.value) params.set('to', els.to.value);
+                    if (els.actorType.value) params.set('actor_type', els.actorType.value);
+                    if (els.username.value.trim()) params.set('username', els.username.value.trim());
+                    if (els.actorId.value.trim()) params.set('actor_id', els.actorId.value.trim());
+                    selectedValues(els.actions).forEach(a => params.append('action', a));
+                    selectedValues(els.severity).forEach(s => params.append('severity', s));
+                    if (els.resourceId.value.trim()) params.set('resource_id', els.resourceId.value.trim());
+                    params.set('sort', els.sort.value);
+                    params.set('page', state.page);
+                    params.set('page_size', els.pageSize.value);
+                    return params;
+                }
+
+                function renderLogs(items, query) {
+                    if (!items.length) {
+                        els.results.innerHTML = '<div class="text-gray-400">No activity records found.</div>';
+                        return;
+                    }
+                    els.results.innerHTML = items.map(item => {
+                        const severityClass = item.severity === 'ERROR' ? 'text-red-400' : item.severity === 'WARN' ? 'text-yellow-300' : 'text-green-300';
+                        const actorClass = item.actor_type === 'ADMIN' ? 'text-indigo-300' : item.actor_type === 'SYSTEM' ? 'text-purple-300' : 'text-blue-300';
+                        const resource = item.resource_ids ? ` ${escapeHtml(JSON.stringify(item.resource_ids))}` : '';
+                        const meta = item.metadata ? ` ${escapeHtml(JSON.stringify(item.metadata))}` : '';
+                        const user = item.username ? ` ${escapeHtml(item.username)}` : '';
+                        const actorId = item.actor_id ? ` (${escapeHtml(item.actor_id)})` : '';
+                        return `
+                            <div class="terminal-line py-2">
+                                <div class="flex flex-wrap gap-2 items-center">
+                                    <span class="text-gray-400">${escapeHtml(item.timestamp)}</span>
+                                    <span class="${severityClass} font-bold">${escapeHtml(item.severity)}</span>
+                                    <span class="${actorClass} font-bold">${escapeHtml(item.actor_type)}${user}${actorId}</span>
+                                    <span class="text-indigo-200">${escapeHtml(item.action)}</span>
+                                    <span class="text-gray-200">${highlight(item.message, query)}</span>
+                                </div>
+                                <div class="text-gray-500 text-[10px] mt-1">request_id=${escapeHtml(item.request_id)}${resource}${meta}</div>
+                            </div>
+                        `;
+                    }).join('');
+                }
+
+                function updatePagination() {
+                    const totalPages = Math.max(1, Math.ceil(state.total / state.pageSize));
+                    els.pageInfo.textContent = `Page ${state.page} of ${totalPages}`;
+                    els.prev.disabled = state.page <= 1;
+                    els.next.disabled = state.page >= totalPages;
+                }
+
+                function fetchLogs() {
+                    state.pageSize = parseInt(els.pageSize.value, 10) || 50;
+                    const params = buildParams();
+                    fetch('/api/admin/activity/search?' + params.toString())
+                        .then(r => r.json())
+                        .then(data => {
+                            state.total = data.total || 0;
+                            state.page = data.page || 1;
+                            renderLogs(data.items || [], els.query.value.trim());
+                            els.meta.textContent = `${state.total} records`;
+                            updatePagination();
+                        })
+                        .catch(() => {
+                            els.results.innerHTML = '<div class="text-red-400">Failed to load activity logs.</div>';
+                        });
+                }
+
+                function resetFilters() {
+                    els.query.value = '';
+                    els.from.value = '';
+                    els.to.value = '';
+                    els.actorType.value = '';
+                    els.username.value = '';
+                    els.actorId.value = '';
+                    Array.from(els.actions.options).forEach(o => o.selected = false);
+                    Array.from(els.severity.options).forEach(o => o.selected = false);
+                    els.resourceId.value = '';
+                    els.sort.value = 'desc';
+                    els.pageSize.value = '50';
+                    state.page = 1;
+                    fetchLogs();
+                }
+
+                function loadActions() {
+                    fetch('/api/admin/activity/actions')
+                        .then(r => r.json())
+                        .then(data => {
+                            const actions = data.actions || [];
+                            els.actions.innerHTML = actions.map(action => `<option value="${escapeHtml(action)}">${escapeHtml(action)}</option>`).join('');
+                        });
+                }
+
+                els.search.addEventListener('click', () => { state.page = 1; fetchLogs(); });
+                els.reset.addEventListener('click', resetFilters);
+                els.refresh.addEventListener('click', fetchLogs);
+                els.prev.addEventListener('click', () => { if (state.page > 1) { state.page--; fetchLogs(); } });
+                els.next.addEventListener('click', () => { state.page++; fetchLogs(); });
+                els.autoRefresh.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        state.timer = setInterval(fetchLogs, 3000);
+                    } else if (state.timer) {
+                        clearInterval(state.timer);
+                        state.timer = null;
+                    }
+                });
+                els.exportJsonl.addEventListener('click', () => {
+                    const params = buildParams();
+                    params.set('format', 'jsonl');
+                    window.location = '/api/admin/activity/export?' + params.toString();
+                });
+                els.exportCsv.addEventListener('click', () => {
+                    const params = buildParams();
+                    params.set('format', 'csv');
+                    window.location = '/api/admin/activity/export?' + params.toString();
+                });
+                els.download.addEventListener('click', () => {
+                    const scope = els.downloadScope.value || 'current';
+                    window.location = '/api/admin/activity/download?scope=' + encodeURIComponent(scope);
+                });
+
+                loadActions();
+                fetchLogs();
+            })();
+        </script>
         {{end}}
 
         {{if eq .CurrentView "tickets"}}

@@ -32,6 +32,22 @@ func initDB() {
 		`CREATE TABLE IF NOT EXISTS blacklist (target TEXT PRIMARY KEY, reason TEXT, date TEXT);`,
 		`CREATE TABLE IF NOT EXISTS methods (name TEXT PRIMARY KEY, layer TEXT, command TEXT, enabled BOOLEAN DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`,
 		`CREATE TABLE IF NOT EXISTS idempotency_keys (key TEXT PRIMARY KEY, user_id TEXT, action TEXT, reference_id TEXT, created_at INTEGER);`,
+		`CREATE TABLE IF NOT EXISTS activity_logs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			timestamp TEXT,
+			ts_unix INTEGER,
+			actor_type TEXT,
+			actor_id TEXT,
+			username TEXT,
+			action TEXT,
+			severity TEXT,
+			request_id TEXT,
+			ip TEXT,
+			user_agent TEXT,
+			message TEXT,
+			resource_ids TEXT,
+			metadata TEXT
+		);`,
 	}
 	for _, t := range tables {
 		if _, err := db.Exec(t); err != nil {
@@ -60,6 +76,9 @@ func initDB() {
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_sessions_username ON sessions(username);")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_tickets_user_id ON tickets(user_id);")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity_logs(ts_unix);")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_activity_action ON activity_logs(action);")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_activity_actor ON activity_logs(actor_type, username);")
 
 	// Seed default methods if table is empty
 	var mCount int
