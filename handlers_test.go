@@ -15,9 +15,12 @@ import (
 func setupTestDB(t *testing.T) {
 	t.Helper()
 	var err error
-	db, err = sql.Open("sqlite3", ":memory:")
+	db, err = sql.Open("sqlite3", "file::memory:?cache=shared")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
+	}
+	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
+		t.Fatalf("set busy timeout: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = db.Close()
