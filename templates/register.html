@@ -1,7 +1,7 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
-    {{template "theme_script"}}
+    {{template "tailwind_config"}}
     <title>Initialize Identity | TITAN</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -49,7 +49,7 @@
     {{template "style"}}
 </head>
 <body class="flex items-center justify-center h-screen relative">
-    {{template "theme_toggle"}}
+    
     
     <div class="absolute inset-0 bg-grid pointer-events-none"></div>
     <div class="absolute w-[600px] h-[600px] bg-indigo-600/10 rounded-full blur-[120px] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"></div>
@@ -77,9 +77,14 @@
                     <p class="text-[10px] text-gray-500 mt-1">3–24 characters, letters and numbers recommended.</p>
                 </div>
                 <div>
-                    <label class="block text-[10px] font-bold uppercase text-gray-500 mb-1 ml-1">Referral</label>
-                    <input name="ref" class="input-field w-full px-4 py-3 rounded-xl text-sm font-bold" placeholder="Invite Code">
-                    <p class="text-[10px] text-gray-500 mt-1">Optional. Leave blank if you don’t have one.</p>
+                    <div class="flex items-center justify-between mb-1 ml-1">
+                        <label class="block text-[10px] font-bold uppercase text-gray-500">Referral</label>
+                        {{if .ReferralLocked}}
+                        <span class="text-[9px] font-bold uppercase tracking-widest text-green-400">Referral applied</span>
+                        {{end}}
+                    </div>
+                    <input name="ref" value="{{.ReferralCode}}" {{if .ReferralLocked}}readonly aria-readonly="true"{{end}} class="input-field w-full px-4 py-3 rounded-xl text-sm font-bold {{if .ReferralLocked}}opacity-70 cursor-not-allowed{{end}}" placeholder="Invite Code">
+                    <p class="text-[10px] text-gray-500 mt-1">{{if .ReferralLocked}}Referral code locked from your invite link.{{else}}Optional. Leave blank if you don’t have one.{{end}}</p>
                 </div>
             </div>
             

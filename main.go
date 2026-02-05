@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -76,7 +77,8 @@ func main() {
 			http.Redirect(w, r, "/", 302)
 			return
 		}
-		renderTemplate(w, "landing.html", nil)
+		refCode := strings.TrimSpace(Sanitize(r.URL.Query().Get("ref")))
+		renderTemplate(w, "landing.html", PageData{ReferralCode: refCode})
 	}))
 
 	http.Handle("/captcha/", captcha.Server(240, 80))
@@ -85,9 +87,10 @@ func main() {
 	http.HandleFunc("/logout", wrapHandler(handleLogout))
 	http.HandleFunc("/admin", wrapHandler(handleAdminPage))
 
-	for _, p := range []string{"dashboard", "panel", "status", "deposit", "market", "support", "documentation", "profile"} {
+	for _, p := range []string{"dashboard", "panel", "deposit", "market", "support", "documentation", "profile"} {
 		http.HandleFunc("/"+p, wrapHandler(handlePage(p+".html")))
 	}
+	http.HandleFunc("/status", wrapHandler(handleStatusPage))
 	http.HandleFunc("/panel/l4", wrapHandler(handlePanelL4Page))
 	http.HandleFunc("/panel/l7", wrapHandler(handlePanelL7Page))
 	http.HandleFunc("/panel/l4/submit", wrapHandler(handlePanelL4Submit))

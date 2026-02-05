@@ -9,6 +9,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -111,6 +113,20 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	renderTemplate(w, "login.html", PageData{CsrfToken: token, FlashMessage: msg, FlashType: msgType})
 }
 
+func registerRedirectURL(errCode, refCode string) string {
+	values := url.Values{}
+	if errCode != "" {
+		values.Set("err", errCode)
+	}
+	if refCode != "" {
+		values.Set("ref", refCode)
+	}
+	if len(values) == 0 {
+		return "/register"
+	}
+	return "/register?" + values.Encode()
+}
+
 func handleUserInfo(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w)
 	w.Header().Set("Content-Type", "application/json")
@@ -149,7 +165,7 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 				Username:  Sanitize(r.FormValue("username")),
 				Message:   "Registration rate limited.",
 			})
-			http.Redirect(w, r, "/register?err=rate_limit", http.StatusFound)
+			http.Redirect(w, r, registerRedirectURL("rate_limit", strings.TrimSpace(Sanitize(r.FormValue("ref")))), http.StatusFound)
 			return
 		}
 		if !validateCSRF(r) {
@@ -160,7 +176,7 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 				Username:  Sanitize(r.FormValue("username")),
 				Message:   "Registration blocked by CSRF validation.",
 			})
-			http.Redirect(w, r, "/register?err=csrf", http.StatusFound)
+			http.Redirect(w, r, registerRedirectURL("csrf", strings.TrimSpace(Sanitize(r.FormValue("ref")))), http.StatusFound)
 			return
 		}
 
@@ -168,6 +184,7 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 		p := r.FormValue("password")
 		captchaId := r.FormValue("captchaId")
 		captchaSolution := r.FormValue("captcha")
+		refCode := strings.TrimSpace(Sanitize(r.FormValue("ref")))
 
 		if !captchaVerify(captchaId, captchaSolution) {
 			LogActivity(r, ActivityLogEntry{
@@ -177,18 +194,17 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 				Username:  u,
 				Message:   "Registration failed due to captcha validation.",
 			})
-			http.Redirect(w, r, "/register?err=captcha_wrong", http.StatusFound)
+			http.Redirect(w, r, registerRedirectURL("captcha_wrong", refCode), http.StatusFound)
 			return
 		}
 
-		refCode := strings.TrimSpace(Sanitize(r.FormValue("ref")))
 		var count int
 		db.QueryRow("SELECT count(*) FROM users WHERE username = ?", u).Scan(&count)
 		if count == 0 {
 			hashedPass, _ := generatePasswordHash(p)
 			myRefCode, err := generateUniqueRefCode()
 			if err != nil {
-				http.Redirect(w, r, "/register?err=db", http.StatusFound)
+				http.Redirect(w, r, registerRedirectURL("db", refCode), http.StatusFound)
 				return
 			}
 			var validRef string
@@ -205,10 +221,10 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 								"ref_code": refCode,
 							},
 						})
-						http.Redirect(w, r, "/register?err=bad_ref", http.StatusFound)
+						http.Redirect(w, r, registerRedirectURL("bad_ref", refCode), http.StatusFound)
 						return
 					}
-					http.Redirect(w, r, "/register?err=db", http.StatusFound)
+					http.Redirect(w, r, registerRedirectURL("db", refCode), http.StatusFound)
 					return
 				}
 			}
@@ -220,13 +236,13 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 					Username:  u,
 					Message:   "Registration failed due to self-referral.",
 				})
-				http.Redirect(w, r, "/register?err=bad_ref", http.StatusFound)
+				http.Redirect(w, r, registerRedirectURL("bad_ref", refCode), http.StatusFound)
 				return
 			}
 			db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", u, hashedPass, "Free", "Active", generateToken(), "u#"+generateID(), 0.0, myRefCode, validRef, 0.0, 0)
 			token := createSession(u, r)
 			if token == "" {
-				http.Redirect(w, r, "/register?err=session", http.StatusFound)
+				http.Redirect(w, r, registerRedirectURL("session", refCode), http.StatusFound)
 				return
 			}
 			setSessionCookie(w, r, token, 86400)
@@ -250,7 +266,7 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 				Username:  u,
 				Message:   "Registration failed due to duplicate username.",
 			})
-			http.Redirect(w, r, "/register?err=taken", http.StatusFound)
+			http.Redirect(w, r, registerRedirectURL("taken", refCode), http.StatusFound)
 		}
 		return
 	}
@@ -259,7 +275,8 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 	token := ensureCSRFCookie(w, r)
 	captchaId := captcha.New()
 	msg, msgType := flashMessageFromQuery(r)
-	renderTemplate(w, "register.html", PageData{CaptchaId: captchaId, CsrfToken: token, FlashMessage: msg, FlashType: msgType})
+	refCode := strings.TrimSpace(Sanitize(r.URL.Query().Get("ref")))
+	renderTemplate(w, "register.html", PageData{CaptchaId: captchaId, CsrfToken: token, FlashMessage: msg, FlashType: msgType, ReferralCode: refCode, ReferralLocked: refCode != ""})
 }
 
 func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
@@ -1243,6 +1260,92 @@ func handlePage(pName string) http.HandlerFunc {
 		}
 		renderTemplate(w, pName, pd)
 	}
+}
+
+func handleStatusPage(w http.ResponseWriter, r *http.Request) {
+	setSecurityHeaders(w)
+	username, ok := validateSession(r)
+	if !ok {
+		http.Redirect(w, r, "/login", 302)
+		return
+	}
+	csrfToken := ensureCSRFCookie(w, r)
+	var u User
+	if err := db.QueryRow("SELECT username, plan, status, api_token, user_id, balance, ref_code, ref_earnings, referred_by FROM users WHERE username=?", username).
+		Scan(&u.Username, &u.Plan, &u.Status, &u.ApiToken, &u.UserID, &u.Balance, &u.RefCode, &u.RefEarnings, &u.ReferredBy); err != nil {
+		http.Redirect(w, r, "/logout", 302)
+		return
+	}
+	if strings.TrimSpace(u.Plan) == "" {
+		u.Plan = "Free"
+		_, _ = db.Exec("UPDATE users SET plan='Free' WHERE username=?", u.Username)
+	}
+	u.Plan = effectivePlanName(u.Plan)
+
+	now := time.Now()
+	uptime := formatUptime(time.Since(startTime))
+	appVersion := strings.TrimSpace(os.Getenv("VERSION"))
+	if appVersion == "" {
+		appVersion = strings.TrimSpace(os.Getenv("GIT_SHA"))
+	}
+	if appVersion == "" {
+		appVersion = "unknown"
+	}
+
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+
+	dbHealthy := true
+	dbErr := ""
+	if err := db.Ping(); err != nil {
+		dbHealthy = false
+		dbErr = err.Error()
+	}
+
+	var totalUsers, totalDeposits int
+	var pendingDeposits, paidDeposits, rejectedDeposits, expiredDeposits int
+	var totalPurchases int
+	db.QueryRow("SELECT count(*) FROM users").Scan(&totalUsers)
+	db.QueryRow("SELECT count(*) FROM deposits").Scan(&totalDeposits)
+	db.QueryRow("SELECT count(*) FROM deposits WHERE lower(status)='pending'").Scan(&pendingDeposits)
+	db.QueryRow("SELECT count(*) FROM deposits WHERE lower(status)='paid'").Scan(&paidDeposits)
+	db.QueryRow("SELECT count(*) FROM deposits WHERE lower(status)='rejected'").Scan(&rejectedDeposits)
+	db.QueryRow("SELECT count(*) FROM deposits WHERE lower(status)='expired'").Scan(&expiredDeposits)
+	db.QueryRow("SELECT count(*) FROM idempotency_keys WHERE action='purchase'").Scan(&totalPurchases)
+
+	mu.Lock()
+	activeCount := len(activeAttacks)
+	mu.Unlock()
+
+	renderTemplate(w, "status.html", PageData{
+		Username:                     u.Username,
+		UserPlan:                     u.Plan,
+		UserBalance:                  u.Balance,
+		CurrentPage:                  "status",
+		UsernameInitials:             usernameInitials(u.Username),
+		ApiToken:                     u.ApiToken,
+		CsrfToken:                    csrfToken,
+		StatusUptime:                 uptime,
+		StatusStartTime:              startTime.Format("2006-01-02 15:04:05"),
+		StatusServerTime:             now.Format("2006-01-02 15:04:05"),
+		StatusServerTimezone:         now.Format("MST"),
+		StatusAppVersion:             appVersion,
+		StatusDBHealthy:              dbHealthy,
+		StatusDBError:                dbErr,
+		StatusTotalUsers:             totalUsers,
+		StatusTotalDeposits:          totalDeposits,
+		StatusDepositPending:         pendingDeposits,
+		StatusDepositPaid:            paidDeposits,
+		StatusDepositRejected:        rejectedDeposits,
+		StatusDepositExpired:         expiredDeposits,
+		StatusTotalPurchases:         totalPurchases,
+		StatusGoVersion:              runtime.Version(),
+		StatusOSArch:                 fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
+		StatusMemAlloc:               formatBytes(mem.Alloc),
+		StatusMemSys:                 formatBytes(mem.Sys),
+		StatusActiveAttacksAvailable: true,
+		ActiveAttacks:                activeCount,
+	})
 }
 
 func buildPanelFormData(username, csrfToken string) (PageData, error) {

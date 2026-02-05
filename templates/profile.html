@@ -1,5 +1,5 @@
-<!DOCTYPE html><html lang="en"><head>
-    {{template "theme_script"}}<title>Profile | TITAN</title><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><script src="https://cdn.tailwindcss.com"></script><script src="//unpkg.com/alpinejs" defer></script><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<!DOCTYPE html><html lang="en" class="dark"><head>
+    {{template "tailwind_config"}}<title>Profile | TITAN</title><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><script src="https://cdn.tailwindcss.com"></script><script src="//unpkg.com/alpinejs" defer></script><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     
     <style>
         body, div, aside, nav, button, input, span, p, h1, h2, h3, table, td, th { transition-property: background-color, color, border-color, box-shadow; transition-duration: 200ms; transition-timing-function: ease-in-out; }
@@ -33,7 +33,7 @@
     </style>
     {{template "style"}}
 </head><body class="flex h-screen overflow-hidden text-white">
-    {{template "theme_toggle"}}
+    
 <div class="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-[400px]">
     <div class="glass-panel px-2 py-3 rounded-2xl flex justify-around items-center shadow-2xl bg-white/90 dark:bg-[#050505]/90 border border-black/5 dark:border-white/10 backdrop-blur-xl transition-all duration-300">
         <a href="/dashboard" class="flex flex-col items-center gap-1 p-2 rounded-xl transition group {{if eq .CurrentPage "dashboard"}}text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-white/5{{else}}text-gray-400 dark:text-gray-500 hover:text-black dark:hover:text-white{{end}}"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg></a>

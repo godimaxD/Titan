@@ -1,7 +1,7 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
-    {{template "theme_script"}}
+    {{template "tailwind_config"}}
     <title>Invoice #{{.ID}}</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,15 +11,7 @@
     <style>
         body { transition: background 0.3s, color 0.3s; }
         
-        /* LIGHT MODE */
-        :root:not([data-theme="dark"]) body { background: linear-gradient(135deg, var(--bg) 0%, var(--bg-alt) 100%); color: var(--text); }
-        :root:not([data-theme="dark"]) .glass { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); backdrop-filter: blur(20px); }
-        :root:not([data-theme="dark"]) .receipt-paper { background: #ffffff; color: #000; border: 1px solid var(--border); }
         
-        /* DARK MODE */
-        :root[data-theme="dark"] body { background: var(--bg); color: var(--text); }
-        :root[data-theme="dark"] .glass { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); }
-        :root[data-theme="dark"] .receipt-paper { background: #111; color: #fff; border: 1px solid #333; }
 
         .hidden-screen { display: none !important; }
         .flex-screen { display: flex !important; }
@@ -36,7 +28,7 @@
     {{template "style"}}
 </head>
 <body class="flex items-center justify-center h-screen relative overflow-hidden font-sans p-4">
-    {{template "theme_toggle"}}
+    
     <div class="absolute w-[600px] h-[600px] bg-indigo-900/20 rounded-full blur-[120px] -top-20 -left-20 pointer-events-none"></div>
 
     <div class="absolute top-8 left-8 z-50 no-print">
