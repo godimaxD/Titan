@@ -17,6 +17,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -44,15 +45,81 @@ func renderTemplate(w http.ResponseWriter, tmpl string, data interface{}) {
 	}
 }
 
+func applyEnvConfig() {
+	if val := os.Getenv("TRUST_PROXY"); val != "" {
+		cfg.TrustProxy = parseEnvBool(val)
+	}
+	if val := os.Getenv("FORCE_SECURE_COOKIES"); val != "" {
+		cfg.ForceSecureCookies = parseEnvBool(val)
+	}
+}
+
+func parseEnvBool(val string) bool {
+	switch strings.ToLower(strings.TrimSpace(val)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 func isSecureRequest(r *http.Request) bool {
+	if cfg.ForceSecureCookies {
+		return true
+	}
 	if r == nil {
 		return false
 	}
 	if r.TLS != nil {
 		return true
 	}
-	if proto := r.Header.Get("X-Forwarded-Proto"); strings.EqualFold(proto, "https") {
+	if cfg.TrustProxy && isForwardedHTTPS(r) {
 		return true
+	}
+	return false
+}
+
+func isForwardedHTTPS(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if proto := firstForwardedProto(r.Header.Get("X-Forwarded-Proto")); strings.EqualFold(proto, "https") {
+		return true
+	}
+	return forwardedHeaderProtoHTTPS(r.Header.Get("Forwarded"))
+}
+
+func firstForwardedProto(headerVal string) string {
+	if headerVal == "" {
+		return ""
+	}
+	parts := strings.Split(headerVal, ",")
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(parts[0])
+}
+
+func forwardedHeaderProtoHTTPS(headerVal string) bool {
+	if headerVal == "" {
+		return false
+	}
+	entries := strings.Split(headerVal, ",")
+	for _, entry := range entries {
+		params := strings.Split(entry, ";")
+		for _, param := range params {
+			kv := strings.SplitN(strings.TrimSpace(param), "=", 2)
+			if len(kv) != 2 {
+				continue
+			}
+			if !strings.EqualFold(kv[0], "proto") {
+				continue
+			}
+			val := strings.Trim(kv[1], "\"")
+			if strings.EqualFold(val, "https") {
+				return true
+			}
+		}
 	}
 	return false
 }
