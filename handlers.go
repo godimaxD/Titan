@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -328,6 +328,14 @@ func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	now := time.Now()
+	if err := expirePendingDepositsTx(tx, now); err != nil {
+		logDepositWalletFailure(tx, "db error", err)
+		tx.Rollback()
+		http.Redirect(w, r, "/deposit?err=db", http.StatusFound)
+		return
+	}
+
 	depID := generateID()
 	if requestID != "" {
 		res, err := tx.Exec("INSERT OR IGNORE INTO idempotency_keys (key, user_id, action, reference_id, created_at) VALUES (?, ?, ?, ?, ?)", requestID, username, "deposit", depID, time.Now().Unix())
@@ -367,17 +375,38 @@ func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	var walletAddr string
-	err = tx.QueryRow(`
-		SELECT address
-		FROM wallets
-		WHERE (status = 'Free' OR status IS NULL OR TRIM(status) = '')
-			AND (assigned_to IS NULL OR assigned_to = '')
-		ORDER BY address
-		LIMIT 1
-	`).Scan(&walletAddr)
-
+	walletRow, err := selectUsableWalletTx(tx, now)
 	if err != nil {
+		if errors.Is(err, errNoUsableWallets) || errors.Is(err, errInvalidWalletRows) {
+			reason := "no wallets"
+			if errors.Is(err, errInvalidWalletRows) {
+				reason = "invalid wallet rows"
+			}
+			logDepositWalletFailure(tx, reason, err)
+			tx.Rollback()
+			http.Redirect(w, r, "/deposit?err=wallets", http.StatusFound)
+			return
+		}
+		logDepositWalletFailure(tx, "db error", err)
+		tx.Rollback()
+		http.Redirect(w, r, "/deposit?err=db", http.StatusFound)
+		return
+	}
+
+	res, err := tx.Exec(fmt.Sprintf(`
+		UPDATE wallets
+		SET status='Busy', assigned_to=?
+		WHERE address=?
+			AND %s
+	`, walletUsableSQL), depID, walletRow.Address, now.Unix())
+	if err != nil {
+		logDepositWalletFailure(tx, "db error", err)
+		tx.Rollback()
+		http.Redirect(w, r, "/deposit?err=db", http.StatusFound)
+		return
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		logDepositWalletFailure(tx, "no wallets", errNoUsableWallets)
 		tx.Rollback()
 		http.Redirect(w, r, "/deposit?err=wallets", http.StatusFound)
 		return
@@ -385,29 +414,12 @@ func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
 	expires := time.Now().Add(15 * time.Minute).Unix()
 
 	_, err = tx.Exec("INSERT INTO deposits (id, user_id, amount, usd_amount, address, status, date, expires) VALUES (?, ?, ?, ?, ?, 'Pending', ?, ?)",
-		depID, username, trxAmount, usdAmt, walletAddr, time.Now().Format("2006-01-02 15:04"), expires)
+		depID, username, trxAmount, usdAmt, walletRow.Address, time.Now().Format("2006-01-02 15:04"), expires)
 
 	if err != nil {
+		logDepositWalletFailure(tx, "db error", err)
 		tx.Rollback()
 		http.Redirect(w, r, "/deposit?err=db", http.StatusFound)
-		return
-	}
-
-	res, err := tx.Exec(`
-		UPDATE wallets
-		SET status='Busy', assigned_to=?
-		WHERE address=?
-			AND (status = 'Free' OR status IS NULL OR TRIM(status) = '')
-			AND (assigned_to IS NULL OR assigned_to = '')
-	`, depID, walletAddr)
-	if err != nil {
-		tx.Rollback()
-		http.Redirect(w, r, "/deposit?err=db", http.StatusFound)
-		return
-	}
-	if rows, _ := res.RowsAffected(); rows == 0 {
-		tx.Rollback()
-		http.Redirect(w, r, "/deposit?err=wallets", http.StatusFound)
 		return
 	}
 
@@ -430,7 +442,7 @@ func handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
 		Metadata: map[string]interface{}{
 			"usd_amount": usdAmt,
 			"trx_amount": trxAmount,
-			"wallet":     maskAddress(walletAddr),
+			"wallet":     maskAddress(walletRow.Address),
 		},
 	})
 	http.Redirect(w, r, "/deposit/pay?id="+depID+"&msg=deposit_created", http.StatusFound)
@@ -470,8 +482,17 @@ func handleDepositPayPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !d.Expires.IsZero() && d.Status == "Pending" && time.Now().After(d.Expires) {
-		_, _ = db.Exec("UPDATE deposits SET status='Expired' WHERE id = ?", d.ID)
-		d.Status = "Expired"
+		now := time.Now()
+		tx, err := db.Begin()
+		if err == nil {
+			if _, err := tx.Exec("UPDATE deposits SET status='Expired' WHERE id = ? AND lower(status)='pending'", d.ID); err == nil {
+				_ = releaseWalletForDepositTx(tx, d.ID, now)
+				if err := tx.Commit(); err == nil {
+					d.Status = "Expired"
+				}
+			}
+			_ = tx.Rollback()
+		}
 	}
 	remaining := int(time.Until(d.Expires).Seconds())
 	if remaining < 0 {
@@ -563,9 +584,17 @@ func handleCheckDeposit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !expires.IsZero() && status == "Pending" && time.Now().After(expires) {
-		_, _ = db.Exec("UPDATE deposits SET status='Expired' WHERE id = ?", id)
-		_, _ = db.Exec("UPDATE wallets SET status='Free', assigned_to='' WHERE assigned_to=?", id)
-		status = "Expired"
+		now := time.Now()
+		tx, err := db.Begin()
+		if err == nil {
+			if _, err := tx.Exec("UPDATE deposits SET status='Expired' WHERE id = ? AND lower(status)='pending'", id); err == nil {
+				_ = releaseWalletForDepositTx(tx, id, now)
+				if err := tx.Commit(); err == nil {
+					status = "Expired"
+				}
+			}
+			_ = tx.Rollback()
+		}
 	}
 	normalized := normalizeDepositStatus(status)
 	json.NewEncoder(w).Encode(map[string]string{"status": normalized})
@@ -1284,87 +1313,35 @@ func handlePage(pName string) http.HandlerFunc {
 
 func handleStatusPage(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w)
-	username, ok := validateSession(r)
-	if !ok {
-		http.Redirect(w, r, "/login", 302)
-		return
-	}
-	csrfToken := ensureCSRFCookie(w, r)
-	var u User
-	if err := db.QueryRow("SELECT username, plan, status, api_token, user_id, balance, ref_code, ref_earnings, referred_by FROM users WHERE username=?", username).
-		Scan(&u.Username, &u.Plan, &u.Status, &u.ApiToken, &u.UserID, &u.Balance, &u.RefCode, &u.RefEarnings, &u.ReferredBy); err != nil {
-		http.Redirect(w, r, "/logout", 302)
-		return
-	}
-	if strings.TrimSpace(u.Plan) == "" {
-		u.Plan = "Free"
-		_, _ = db.Exec("UPDATE users SET plan='Free' WHERE username=?", u.Username)
-	}
-	u.Plan = effectivePlanName(u.Plan)
-
-	now := time.Now()
-	uptime := formatUptime(time.Since(startTime))
+	now := time.Now().UTC()
+	uptime := fmt.Sprintf("Up for %s", formatUptime(time.Since(startTime)))
 	appVersion := strings.TrimSpace(os.Getenv("VERSION"))
 	if appVersion == "" {
 		appVersion = strings.TrimSpace(os.Getenv("GIT_SHA"))
 	}
-	if appVersion == "" {
-		appVersion = "unknown"
-	}
-
-	var mem runtime.MemStats
-	runtime.ReadMemStats(&mem)
 
 	dbHealthy := true
-	dbErr := ""
 	if err := db.Ping(); err != nil {
 		dbHealthy = false
-		dbErr = err.Error()
 	}
 
-	var totalUsers, totalDeposits int
-	var pendingDeposits, paidDeposits, rejectedDeposits, expiredDeposits int
-	var totalPurchases int
-	db.QueryRow("SELECT count(*) FROM users").Scan(&totalUsers)
-	db.QueryRow("SELECT count(*) FROM deposits").Scan(&totalDeposits)
-	db.QueryRow("SELECT count(*) FROM deposits WHERE lower(status)='pending'").Scan(&pendingDeposits)
-	db.QueryRow("SELECT count(*) FROM deposits WHERE lower(status)='paid'").Scan(&paidDeposits)
-	db.QueryRow("SELECT count(*) FROM deposits WHERE lower(status)='rejected'").Scan(&rejectedDeposits)
-	db.QueryRow("SELECT count(*) FROM deposits WHERE lower(status)='expired'").Scan(&expiredDeposits)
-	db.QueryRow("SELECT count(*) FROM idempotency_keys WHERE action='purchase'").Scan(&totalPurchases)
+	siteStatus := "Operational"
+	if !dbHealthy {
+		siteStatus = "Degraded"
+	}
+	dbStatus := "OK"
+	if !dbHealthy {
+		dbStatus = "Error"
+	}
 
-	mu.Lock()
-	activeCount := len(activeAttacks)
-	mu.Unlock()
-
-	renderTemplate(w, "status.html", PageData{
-		Username:                     u.Username,
-		UserPlan:                     u.Plan,
-		UserBalance:                  u.Balance,
-		CurrentPage:                  "status",
-		UsernameInitials:             usernameInitials(u.Username),
-		ApiToken:                     u.ApiToken,
-		CsrfToken:                    csrfToken,
-		StatusUptime:                 uptime,
-		StatusStartTime:              startTime.Format("2006-01-02 15:04:05"),
-		StatusServerTime:             now.Format("2006-01-02 15:04:05"),
-		StatusServerTimezone:         now.Format("MST"),
-		StatusAppVersion:             appVersion,
-		StatusDBHealthy:              dbHealthy,
-		StatusDBError:                dbErr,
-		StatusTotalUsers:             totalUsers,
-		StatusTotalDeposits:          totalDeposits,
-		StatusDepositPending:         pendingDeposits,
-		StatusDepositPaid:            paidDeposits,
-		StatusDepositRejected:        rejectedDeposits,
-		StatusDepositExpired:         expiredDeposits,
-		StatusTotalPurchases:         totalPurchases,
-		StatusGoVersion:              runtime.Version(),
-		StatusOSArch:                 fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
-		StatusMemAlloc:               formatBytes(mem.Alloc),
-		StatusMemSys:                 formatBytes(mem.Sys),
-		StatusActiveAttacksAvailable: true,
-		ActiveAttacks:                activeCount,
+	renderTemplate(w, "status.html", PublicStatus{
+		SiteStatus:     siteStatus,
+		Uptime:         uptime,
+		ServerTimeUTC:  now.Format("2006-01-02 15:04:05"),
+		DBStatus:       dbStatus,
+		AppVersion:     appVersion,
+		SupportMessage: "Need help? Contact support if you’re seeing issues.",
+		SupportLink:    "/support",
 	})
 }
 
@@ -1978,7 +1955,7 @@ func handleAddWallet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Wallet encryption unavailable", http.StatusInternalServerError)
 		return
 	}
-	db.Exec("INSERT INTO wallets(address, private_key, status, assigned_to) VALUES (?, ?, 'Free', '')", address, privateKey)
+	db.Exec("INSERT INTO wallets(address, private_key, status, assigned_to) VALUES (?, ?, 'Free', NULL)", address, privateKey)
 	LogActivity(r, ActivityLogEntry{
 		ActorType: actorTypeAdmin,
 		Username:  username,
@@ -2159,7 +2136,7 @@ func handleDepositAction(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
 			return
 		}
-		if _, err := tx.Exec("UPDATE wallets SET status='Free', assigned_to='' WHERE assigned_to=?", id); err != nil {
+		if err := releaseWalletForDepositTx(tx, id, time.Now()); err != nil {
 			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
 			return
 		}
@@ -2186,7 +2163,7 @@ func handleDepositAction(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
 			return
 		}
-		if _, err := tx.Exec("UPDATE wallets SET status='Free', assigned_to='' WHERE assigned_to=?", id); err != nil {
+		if err := releaseWalletForDepositTx(tx, id, time.Now()); err != nil {
 			http.Redirect(w, r, "/admin?view=finance&err=db", 302)
 			return
 		}

@@ -71,6 +71,39 @@ type AttackData struct {
 }
 type Announcement struct{ Title, Message string }
 
+type PublicStatus struct {
+	SiteStatus     string
+	Uptime         string
+	ServerTimeUTC  string
+	DBStatus       string
+	AppVersion     string
+	SupportMessage string
+	SupportLink    string
+}
+
+type PrivateStatus struct {
+	GoVersion         string
+	OSArch            string
+	MemAlloc          string
+	MemSys            string
+	TotalUsers        int
+	TotalDeposits     int
+	DepositPending    int
+	DepositPaid       int
+	DepositRejected   int
+	DepositExpired    int
+	TotalPurchases    int
+	ActiveAttacks     int
+	StatusDBHealthy   bool
+	StatusDBError     string
+	StatusServerTime  string
+	StatusStartTime   string
+	StatusServerZone  string
+	StatusAppVersion  string
+	StatusUptime      string
+	ActiveAttackCount int
+}
+
 type PageData struct {
 	Username, UserPlan, CurrentPage, UsernameInitials, ApiToken, UserIDDisplay string
 	UserBalance, RefEarnings                                                   float64

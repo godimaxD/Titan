@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -87,18 +88,46 @@ func initDB() {
 	db.Exec("UPDATE deposits SET usd_amount = amount * 0.20 WHERE (usd_amount IS NULL OR usd_amount = 0) AND amount > 0")
 	db.Exec("UPDATE users SET plan='Free' WHERE plan IS NULL OR plan=''")
 	db.Exec("UPDATE methods SET layer='layer4' WHERE layer IS NULL OR layer=''")
-	db.Exec("UPDATE wallets SET assigned_to='' WHERE assigned_to IS NULL")
+	db.Exec("UPDATE wallets SET assigned_to=NULL WHERE assigned_to IS NOT NULL AND TRIM(assigned_to) = ''")
+	db.Exec("UPDATE wallets SET status='Free' WHERE status IS NULL OR TRIM(status) = ''")
+	nowUnix := time.Now().Unix()
 	db.Exec(`
 		UPDATE wallets
-		SET status = CASE
-			WHEN status IS NULL OR TRIM(status) = '' THEN
-				CASE
-					WHEN assigned_to IS NULL OR TRIM(assigned_to) = '' THEN 'Free'
-					ELSE 'Busy'
-				END
-			ELSE status
-		END
-	`)
+		SET status='Free'
+		WHERE status NOT IN ('Free', 'Busy', '')
+			AND (assigned_to IS NULL OR TRIM(assigned_to) = '')
+			AND NOT EXISTS (
+				SELECT 1 FROM deposits d
+				WHERE d.address = wallets.address
+					AND lower(d.status) = 'pending'
+					AND (d.expires IS NULL OR d.expires = 0 OR d.expires > ?)
+			)
+	`, nowUnix)
+	db.Exec(`
+		UPDATE wallets
+		SET status='Free'
+		WHERE lower(status) = 'busy'
+			AND (assigned_to IS NULL OR TRIM(assigned_to) = '')
+			AND NOT EXISTS (
+				SELECT 1 FROM deposits d
+				WHERE d.address = wallets.address
+					AND lower(d.status) = 'pending'
+					AND (d.expires IS NULL OR d.expires = 0 OR d.expires > ?)
+			)
+	`, nowUnix)
+	db.Exec(`
+		UPDATE wallets
+		SET assigned_to=NULL
+		WHERE (status IS NULL OR TRIM(status) = '' OR lower(status) = 'free')
+			AND assigned_to IS NOT NULL
+			AND TRIM(assigned_to) != ''
+			AND NOT EXISTS (
+				SELECT 1 FROM deposits d
+				WHERE d.address = wallets.address
+					AND lower(d.status) = 'pending'
+					AND (d.expires IS NULL OR d.expires = 0 OR d.expires > ?)
+			)
+	`, nowUnix)
 
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_deposits_user_id ON deposits(user_id);")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);")
