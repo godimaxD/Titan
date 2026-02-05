@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -1345,35 +1344,9 @@ func handlePage(pName string) http.HandlerFunc {
 
 func handleStatusPage(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w)
-	now := time.Now().UTC()
-	uptime := fmt.Sprintf("Up for %s", formatUptime(time.Since(startTime)))
-	appVersion := strings.TrimSpace(os.Getenv("VERSION"))
-	if appVersion == "" {
-		appVersion = strings.TrimSpace(os.Getenv("GIT_SHA"))
-	}
-
-	dbHealthy := true
-	if err := db.Ping(); err != nil {
-		dbHealthy = false
-	}
-
-	siteStatus := "Operational"
-	if !dbHealthy {
-		siteStatus = "Degraded"
-	}
-	dbStatus := "OK"
-	if !dbHealthy {
-		dbStatus = "Error"
-	}
-
+	uptime := formatUptime(time.Since(startTime))
 	renderTemplate(w, "status.html", PublicStatus{
-		SiteStatus:     siteStatus,
-		Uptime:         uptime,
-		ServerTimeUTC:  now.Format("2006-01-02 15:04:05"),
-		DBStatus:       dbStatus,
-		AppVersion:     appVersion,
-		SupportMessage: "Need help? Contact support if you’re seeing issues.",
-		SupportLink:    "/support",
+		Uptime: uptime,
 	})
 }
 
@@ -2466,7 +2439,18 @@ func handleRedeemLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var plan string
-	if err := db.QueryRow("SELECT plan FROM redeem_codes WHERE code=? AND used=0", code).Scan(&plan); err != nil {
+	tx, err := db.Begin()
+	if err != nil {
+		http.Redirect(w, r, "/login?err=1", http.StatusFound)
+		return
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	if err := tx.QueryRow("SELECT plan FROM redeem_codes WHERE code=? AND used=0", code).Scan(&plan); err != nil {
 		LogActivity(r, ActivityLogEntry{
 			ActorType: actorTypeUser,
 			Action:    "AUTH_REDEEM_FAILED",
@@ -2476,6 +2460,7 @@ func handleRedeemLogin(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?err=invalid_code", http.StatusFound)
 		return
 	}
+	plan = effectivePlanName(plan)
 
 	// Create a minimal one-time user bound to this redeem code
 	// Username pattern: redeem-<id>
@@ -2495,17 +2480,31 @@ func handleRedeemLogin(w http.ResponseWriter, r *http.Request) {
 	userID := "u#" + generateID()
 
 	// Insert user; on rare collision, retry with a different id once
-	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, ?, 'Active', ?, ?, 0.0, ?, '', 0.0, 0)", username, hash, plan, apiTok, userID, refCode); err != nil {
+	if _, err := tx.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, ?, 'Active', ?, ?, 0.0, ?, '', 0.0, 0)", username, hash, plan, apiTok, userID, refCode); err != nil {
 		// Try one more time
 		username = "redeem-" + generateID()
-		if _, err2 := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, ?, 'Active', ?, ?, 0.0, ?, '', 0.0, 0)", username, hash, plan, apiTok, userID, refCode); err2 != nil {
+		if _, err2 := tx.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, ?, 'Active', ?, ?, 0.0, ?, '', 0.0, 0)", username, hash, plan, apiTok, userID, refCode); err2 != nil {
 			http.Redirect(w, r, "/login?err=1", http.StatusFound)
 			return
 		}
 	}
 
 	// Mark code used only after user has been created
-	_, _ = db.Exec("UPDATE redeem_codes SET used=1 WHERE code=?", code)
+	res, err := tx.Exec("UPDATE redeem_codes SET used=1 WHERE code=? AND used=0", code)
+	if err != nil {
+		http.Redirect(w, r, "/login?err=1", http.StatusFound)
+		return
+	}
+	affected, err := res.RowsAffected()
+	if err != nil || affected == 0 {
+		http.Redirect(w, r, "/login?err=invalid_code", http.StatusFound)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		http.Redirect(w, r, "/login?err=1", http.StatusFound)
+		return
+	}
+	committed = true
 
 	token := createSession(username, r)
 	if token == "" {

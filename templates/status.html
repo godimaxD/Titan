@@ -21,38 +21,32 @@
     {{template "style"}}
 </head>
 <body class="min-h-screen text-white">
-    <main class="max-w-4xl mx-auto px-6 py-12 space-y-8">
-        <header class="space-y-2">
-            <h1 class="text-3xl font-black tracking-tight uppercase">Network Status</h1>
-            <p class="text-sm text-gray-400">Public health overview for Titan services.</p>
+    <div class="min-h-screen">
+        <header class="max-w-5xl mx-auto px-6 py-6 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-black text-lg shadow-lg shadow-indigo-500/30">T</div>
+                <div class="flex flex-col">
+                    <h1 class="text-lg font-black tracking-widest uppercase leading-none">TITAN</h1>
+                    <span class="text-[10px] font-bold opacity-60 font-mono tracking-wider text-gray-400">NETWORK STATUS</span>
+                </div>
+            </div>
+            <nav class="flex items-center gap-4 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                <a class="hover:text-white transition" href="/">Home</a>
+                <a class="hover:text-white transition" href="/login">Login</a>
+                <a class="hover:text-white transition" href="/support">Support</a>
+            </nav>
         </header>
 
-        <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div class="glass-panel p-6 rounded-2xl border border-white/5">
-                <div class="text-[10px] font-bold uppercase tracking-widest text-gray-400">Site Status</div>
-                <div class="text-2xl font-bold mt-2">{{.SiteStatus}}</div>
-                <div class="text-xs text-gray-500 mt-2">{{.Uptime}}</div>
-            </div>
-            <div class="glass-panel p-6 rounded-2xl border border-white/5">
-                <div class="text-[10px] font-bold uppercase tracking-widest text-gray-400">Database</div>
-                <div class="text-2xl font-bold mt-2">{{.DBStatus}}</div>
-                <div class="text-xs text-gray-500 mt-2">Server time (UTC): {{.ServerTimeUTC}}</div>
-            </div>
-        </section>
-
-        {{if .AppVersion}}
-        <section class="glass-panel p-6 rounded-2xl border border-white/5">
-            <div class="text-[10px] font-bold uppercase tracking-widest text-gray-400">Version</div>
-            <div class="text-lg font-semibold mt-2">{{.AppVersion}}</div>
-        </section>
-        {{end}}
-
-        <section class="glass-panel p-6 rounded-2xl border border-white/5">
-            <div class="text-sm text-gray-300">{{.SupportMessage}}</div>
-            <a class="inline-flex items-center gap-2 mt-3 text-indigo-400 hover:text-indigo-300 font-semibold" href="{{.SupportLink}}">
-                Contact Support
-            </a>
-        </section>
-    </main>
+        <main class="max-w-3xl mx-auto px-6 pb-16">
+            <section class="glass-panel p-8 rounded-3xl border border-white/5">
+                <h2 class="text-2xl font-black tracking-tight uppercase">Network Status</h2>
+                <p class="text-sm text-gray-400 mt-2">Public uptime overview.</p>
+                <div class="mt-8">
+                    <div class="text-[10px] font-bold uppercase tracking-widest text-gray-400">Uptime</div>
+                    <div class="text-2xl font-bold mt-2">{{.Uptime}}</div>
+                </div>
+            </section>
+        </main>
+    </div>
 </body>
 </html>
