@@ -264,7 +264,7 @@ func handleDepositPayPage(w http.ResponseWriter, r *http.Request) {
 	}
 	var d Deposit
 	var expiresRaw sql.NullInt64
-	err := db.QueryRow("SELECT id, user_id, amount, usd_amount, address, status, expires FROM deposits WHERE id=?", id).
+	err := db.QueryRow("SELECT id, user_id, amount, usd_amount, address, status, CAST(expires AS INTEGER) FROM deposits WHERE id=?", id).
 		Scan(&d.ID, &d.UserID, &d.Amount, &d.UsdAmount, &d.Address, &d.Status, &expiresRaw)
 	if err != nil {
 		http.Redirect(w, r, "/deposit", 302)
@@ -335,7 +335,7 @@ func handleCheckDeposit(w http.ResponseWriter, r *http.Request) {
 	var status string
 	var owner string
 	var expiresRaw sql.NullInt64
-	err := db.QueryRow("SELECT status, user_id, expires FROM deposits WHERE id = ?", id).Scan(&status, &owner, &expiresRaw)
+	err := db.QueryRow("SELECT status, user_id, CAST(expires AS INTEGER) FROM deposits WHERE id = ?", id).Scan(&status, &owner, &expiresRaw)
 	if err != nil {
 		http.Error(w, "Not Found", http.StatusNotFound)
 		return
@@ -432,7 +432,7 @@ func normalizeDepositStatus(status string) string {
 }
 
 func parseDepositExpires(raw sql.NullInt64) time.Time {
-	if !raw.Valid {
+	if !raw.Valid || raw.Int64 <= 0 {
 		return time.Time{}
 	}
 	return time.Unix(raw.Int64, 0)
