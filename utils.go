@@ -79,14 +79,24 @@ func validateCSRF(r *http.Request) bool {
 	if err != nil || c.Value == "" {
 		return false
 	}
-	token := r.FormValue("csrf_token")
+	token := r.Header.Get("X-CSRF-Token")
 	if token == "" {
-		token = r.Header.Get("X-CSRF-Token")
+		if !isJSONRequest(r) {
+			token = r.FormValue("csrf_token")
+		}
 	}
 	if token == "" {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(token), []byte(c.Value)) == 1
+}
+
+func isJSONRequest(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	contentType := strings.ToLower(r.Header.Get("Content-Type"))
+	return strings.HasPrefix(contentType, "application/json")
 }
 
 func setSecurityHeaders(w http.ResponseWriter) {
