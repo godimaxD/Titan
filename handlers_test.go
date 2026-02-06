@@ -147,6 +147,57 @@ func TestHandleTokenLoginSuccess(t *testing.T) {
 	}
 }
 
+func TestLogoutInvalidSessionDoesNotDeleteOtherSessions(t *testing.T) {
+	setupTestDB(t)
+
+	_ = createSession("alice", nil)
+	bobToken := createSession("bob", nil)
+	if bobToken == "" {
+		t.Fatalf("expected bob session token")
+	}
+	expired := time.Now().Add(-time.Hour).Unix()
+	if _, err := db.Exec("UPDATE sessions SET expires=? WHERE token=?", expired, bobToken); err != nil {
+		t.Fatalf("expire bob session: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/logout", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: bobToken})
+	req.RemoteAddr = "127.0.0.1:1234"
+	rr := httptest.NewRecorder()
+	handleLogout(rr, req)
+
+	var count int
+	if err := db.QueryRow("SELECT count(*) FROM sessions WHERE token=?", bobToken).Scan(&count); err != nil {
+		t.Fatalf("query bob session: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected bob session to remain, got %d", count)
+	}
+}
+
+func TestLogoutDeletesCurrentSession(t *testing.T) {
+	setupTestDB(t)
+
+	token := createSession("alice", nil)
+	if token == "" {
+		t.Fatalf("expected alice session token")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/logout", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+	req.RemoteAddr = "127.0.0.1:1234"
+	rr := httptest.NewRecorder()
+	handleLogout(rr, req)
+
+	var count int
+	if err := db.QueryRow("SELECT count(*) FROM sessions WHERE token=?", token).Scan(&count); err != nil {
+		t.Fatalf("query alice session: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected alice session to be deleted, got %d", count)
+	}
+}
+
 func TestHandleTokenLoginInvalid(t *testing.T) {
 	setupTestDB(t)
 	body := url.Values{

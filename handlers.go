@@ -36,7 +36,9 @@ const maxBodySize = 64 << 10 // 64KB
 
 func handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "POST" {
-		if isRateLimited(getIP(r)) {
+		ip := getIP(r)
+		if isRateLimited(ip) {
+			logRateLimit(r, ip, Sanitize(r.FormValue("username")))
 			LogActivity(r, ActivityLogEntry{
 				ActorType: actorTypeUser,
 				Action:    "AUTH_LOGIN_RATE_LIMIT",
@@ -128,7 +130,9 @@ func handleTokenLogin(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?mode=token", http.StatusFound)
 		return
 	}
-	if isRateLimited(getIP(r)) {
+	ip := getIP(r)
+	if isRateLimited(ip) {
+		logRateLimit(r, ip, "")
 		LogActivity(r, ActivityLogEntry{
 			ActorType: actorTypeUser,
 			Action:    "AUTH_TOKEN_LOGIN_RATE_LIMIT",
@@ -239,7 +243,9 @@ func handleUserInfo(w http.ResponseWriter, r *http.Request) {
 
 func handleRegister(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "POST" {
-		if isRateLimited(getIP(r)) {
+		ip := getIP(r)
+		if isRateLimited(ip) {
+			logRateLimit(r, ip, Sanitize(r.FormValue("username")))
 			LogActivity(r, ActivityLogEntry{
 				ActorType: actorTypeUser,
 				Action:    "AUTH_REGISTER_RATE_LIMIT",
@@ -1121,7 +1127,9 @@ func handlePanelAttack(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 
-	if isRateLimited(getIP(r)) {
+	ip := getIP(r)
+	if isRateLimited(ip) {
+		logRateLimit(r, ip, "")
 		writeJSONError(w, http.StatusTooManyRequests, "rate_limited", "Too many requests.")
 		return
 	}
@@ -1184,6 +1192,7 @@ func handlePanelAttack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if isBlacklisted(d.Target) {
+		logBlacklistReject(r, ip, username, d.Target)
 		writeJSONError(w, http.StatusForbidden, "target_blacklisted", "Target is blacklisted.")
 		return
 	}
@@ -1541,7 +1550,9 @@ func handlePanelL7Page(w http.ResponseWriter, r *http.Request) {
 
 func handlePanelL4Submit(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w)
-	if isRateLimited(getIP(r)) {
+	ip := getIP(r)
+	if isRateLimited(ip) {
+		logRateLimit(r, ip, "")
 		http.Error(w, "Rate Limit", http.StatusTooManyRequests)
 		return
 	}
@@ -1621,6 +1632,7 @@ func handlePanelL4Submit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if isBlacklisted(target) {
+		logBlacklistReject(r, ip, username, target)
 		fieldErrors["target"] = "Target is blacklisted."
 	}
 
@@ -1643,7 +1655,9 @@ func handlePanelL4Submit(w http.ResponseWriter, r *http.Request) {
 
 func handlePanelL7Submit(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w)
-	if isRateLimited(getIP(r)) {
+	ip := getIP(r)
+	if isRateLimited(ip) {
+		logRateLimit(r, ip, "")
 		http.Error(w, "Rate Limit", http.StatusTooManyRequests)
 		return
 	}
@@ -1721,6 +1735,7 @@ func handlePanelL7Submit(w http.ResponseWriter, r *http.Request) {
 		host = parsedURL.Hostname()
 	}
 	if target != "" && (isBlacklisted(target) || (host != "" && isBlacklisted(host))) {
+		logBlacklistReject(r, ip, username, target)
 		fieldErrors["target"] = "Target is blacklisted."
 	}
 
@@ -1752,8 +1767,15 @@ func handlePanelL7Submit(w http.ResponseWriter, r *http.Request) {
 func handleLogout(w http.ResponseWriter, r *http.Request) {
 	username, ok := validateSession(r)
 	c, err := r.Cookie(sessionCookieName)
-	if err == nil {
-		db.Exec("DELETE FROM sessions WHERE token=?", c.Value)
+	if err == nil && c.Value != "" && ok {
+		res, err := db.Exec("DELETE FROM sessions WHERE token=? AND username=?", c.Value, username)
+		if err == nil {
+			if rows, _ := res.RowsAffected(); rows == 0 {
+				logLogoutMismatch(r, getIP(r), username)
+			}
+		}
+	} else if err == nil && c.Value != "" && !ok {
+		logLogoutMismatch(r, getIP(r), "")
 	}
 	setSessionCookie(w, r, "", -1)
 	if ok {
@@ -2468,7 +2490,9 @@ func apiLaunch(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed.")
 		return
 	}
-	if isRateLimited(getIP(r)) {
+	ip := getIP(r)
+	if isRateLimited(ip) {
+		logRateLimit(r, ip, "")
 		writeJSONError(w, http.StatusTooManyRequests, "rate_limited", "Too many requests.")
 		return
 	}
@@ -2515,6 +2539,7 @@ func apiLaunch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if isBlacklisted(target) {
+		logBlacklistReject(r, ip, usr.Username, target)
 		writeJSONError(w, http.StatusForbidden, "target_blacklisted", "Target is blacklisted.")
 		return
 	}
@@ -2523,7 +2548,9 @@ func apiLaunch(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleRedeemLogin(w http.ResponseWriter, r *http.Request) {
-	if isRateLimited(getIP(r)) {
+	ip := getIP(r)
+	if isRateLimited(ip) {
+		logRateLimit(r, ip, "")
 		http.Redirect(w, r, "/login?err=rate_limit&mode=redeem", http.StatusFound)
 		return
 	}
@@ -2656,7 +2683,9 @@ func handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusForbidden, "csrf", "CSRF validation failed.")
 		return
 	}
-	if isRateLimited(getIP(r)) {
+	ip := getIP(r)
+	if isRateLimited(ip) {
+		logRateLimit(r, ip, username)
 		writeJSONError(w, http.StatusTooManyRequests, "rate_limited", "Too many requests.")
 		return
 	}
@@ -2745,7 +2774,9 @@ func handleRotateToken(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusForbidden, "csrf", "CSRF validation failed.")
 		return
 	}
-	if isRateLimited(getIP(r)) {
+	ip := getIP(r)
+	if isRateLimited(ip) {
+		logRateLimit(r, ip, username)
 		writeJSONError(w, http.StatusTooManyRequests, "rate_limited", "Too many requests.")
 		return
 	}

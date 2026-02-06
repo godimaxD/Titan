@@ -20,6 +20,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -689,10 +690,94 @@ func getReferralEarnings(username string) float64 {
 	}
 	return 0
 }
+
+func normalizeBlacklistTarget(input string) (string, bool) {
+	raw := strings.TrimSpace(input)
+	if raw == "" {
+		return "", false
+	}
+	host := raw
+	if strings.Contains(raw, "://") {
+		if parsed, err := url.Parse(raw); err == nil && parsed.Host != "" {
+			host = parsed.Hostname()
+		}
+	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return "", false
+	}
+	if strings.HasPrefix(host, "[") {
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		} else {
+			host = strings.TrimPrefix(host, "[")
+			host = strings.TrimSuffix(host, "]")
+		}
+	} else if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.TrimSpace(host)
+	host = strings.TrimRight(host, ".")
+	if host == "" {
+		return "", false
+	}
+	return strings.ToLower(host), true
+}
+
+func logRateLimit(r *http.Request, ip, username string) {
+	path := ""
+	if r != nil && r.URL != nil {
+		path = r.URL.Path
+	}
+	if username != "" {
+		log.Printf("event=rate_limit ip=%s path=%s username=%s", ip, path, username)
+		return
+	}
+	log.Printf("event=rate_limit ip=%s path=%s", ip, path)
+}
+
+func logBlacklistReject(r *http.Request, ip, username, target string) {
+	path := ""
+	if r != nil && r.URL != nil {
+		path = r.URL.Path
+	}
+	if username != "" {
+		log.Printf("event=blacklist_reject ip=%s path=%s username=%s target=%s", ip, path, username, target)
+		return
+	}
+	log.Printf("event=blacklist_reject ip=%s path=%s target=%s", ip, path, target)
+}
+
+func logLogoutMismatch(r *http.Request, ip, username string) {
+	path := ""
+	if r != nil && r.URL != nil {
+		path = r.URL.Path
+	}
+	if username != "" {
+		log.Printf("event=logout_mismatch ip=%s path=%s username=%s", ip, path, username)
+		return
+	}
+	log.Printf("event=logout_mismatch ip=%s path=%s", ip, path)
+}
+
 func isBlacklisted(t string) bool {
-	var x bool
-	db.QueryRow("SELECT 1 FROM blacklist WHERE target=?", t).Scan(&x)
-	return x
+	t = strings.TrimSpace(t)
+	if t == "" {
+		return false
+	}
+	var direct bool
+	if err := db.QueryRow("SELECT 1 FROM blacklist WHERE target=?", t).Scan(&direct); err == nil && direct {
+		return true
+	}
+	normalized, ok := normalizeBlacklistTarget(t)
+	if !ok || normalized == "" || normalized == t {
+		return false
+	}
+	var normalizedMatch bool
+	if err := db.QueryRow("SELECT 1 FROM blacklist WHERE target=?", normalized).Scan(&normalizedMatch); err == nil && normalizedMatch {
+		return true
+	}
+	return false
 }
 func getUserByToken(t string) (User, bool) {
 	var usr User

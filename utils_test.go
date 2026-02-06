@@ -103,6 +103,29 @@ func TestMigrateWalletPrivateKeys(t *testing.T) {
 	}
 }
 
+func TestIsBlacklistedNormalizesTargets(t *testing.T) {
+	setupTestDB(t)
+
+	if _, err := db.Exec("INSERT INTO blacklist (target, reason, date) VALUES ('example.com', 'test', '2024-01-01')"); err != nil {
+		t.Fatalf("insert blacklist: %v", err)
+	}
+
+	inputs := []string{
+		"EXAMPLE.COM",
+		"example.com.",
+		"http://example.com/path",
+		"http://EXAMPLE.COM",
+	}
+	for _, input := range inputs {
+		if !isBlacklisted(input) {
+			t.Fatalf("expected %q to be blacklisted", input)
+		}
+	}
+	if isBlacklisted("good.example") {
+		t.Fatalf("expected non-blacklisted target to pass")
+	}
+}
+
 func TestIsSecureRequest(t *testing.T) {
 	origTrustProxy := cfg.TrustProxy
 	origForceSecure := cfg.ForceSecureCookies
