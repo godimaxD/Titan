@@ -63,6 +63,25 @@ func TestValidateCSRFSessionMismatchFails(t *testing.T) {
 	}
 }
 
+func TestCSRFBoundToSessionTokenNotCookieOnly(t *testing.T) {
+	setupTestDB(t)
+	sess := createSession("alice", nil)
+	if sess == "" {
+		t.Fatalf("expected session token")
+	}
+	csrf := sessionCSRFToken(t, sess)
+	bad := csrf + "x"
+	body := url.Values{"csrf_token": {bad}}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/api/test", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: bad})
+
+	if validateCSRF(req) {
+		t.Fatalf("expected CSRF validation to require session-bound token")
+	}
+}
+
 func TestGenerateTokenUsesCryptoRandAndEntropy(t *testing.T) {
 	original := rand.Reader
 	t.Cleanup(func() {

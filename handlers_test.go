@@ -122,6 +122,86 @@ func TestHandleLoginSuccess(t *testing.T) {
 	}
 }
 
+func TestLoginRedirectsUnchanged(t *testing.T) {
+	setupTestDB(t)
+	hash, err := generatePasswordHash("secret-pass")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)", "alice", hash); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	body := url.Values{
+		"username":   {"alice"},
+		"password":   {"secret-pass"},
+		"csrf_token": {"csrf-token"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.RemoteAddr = "127.0.0.1:1234"
+
+	rr := httptest.NewRecorder()
+	handleLogin(rr, req)
+
+	res := rr.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", res.StatusCode)
+	}
+	if loc := res.Header.Get("Location"); !strings.HasPrefix(loc, "/dashboard") {
+		t.Fatalf("expected dashboard redirect, got %q", loc)
+	}
+}
+
+func TestSessionCookieFlagsUnchanged(t *testing.T) {
+	setupTestDB(t)
+	hash, err := generatePasswordHash("secret-pass")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)", "alice", hash); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	body := url.Values{
+		"username":   {"alice"},
+		"password":   {"secret-pass"},
+		"csrf_token": {"csrf-token"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.RemoteAddr = "127.0.0.1:1234"
+
+	rr := httptest.NewRecorder()
+	handleLogin(rr, req)
+
+	res := rr.Result()
+	var sessionCookie *http.Cookie
+	for _, c := range res.Cookies() {
+		if c.Name == sessionCookieName {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatalf("expected session cookie")
+	}
+	if !sessionCookie.HttpOnly {
+		t.Fatalf("expected HttpOnly session cookie")
+	}
+	if sessionCookie.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("expected SameSite=Strict for session cookie")
+	}
+	if sessionCookie.Path != "/" {
+		t.Fatalf("expected session cookie path '/'")
+	}
+	if sessionCookie.Secure {
+		t.Fatalf("expected insecure session cookie for non-HTTPS request")
+	}
+}
+
 func TestHandleLoginInvalidatesExistingSessions(t *testing.T) {
 	setupTestDB(t)
 	hash, err := generatePasswordHash("secret-pass")
@@ -165,6 +245,160 @@ func TestHandleLoginInvalidatesExistingSessions(t *testing.T) {
 	}
 }
 
+func TestLoginRotatesCSRFAcrossBoundary(t *testing.T) {
+	setupTestDB(t)
+	hash, err := generatePasswordHash("secret-pass")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)", "alice", hash); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	attackerToken := "attacker-csrf"
+	body := url.Values{
+		"username":   {"alice"},
+		"password":   {"secret-pass"},
+		"csrf_token": {attackerToken},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: attackerToken})
+	req.RemoteAddr = "127.0.0.1:1234"
+
+	rr := httptest.NewRecorder()
+	handleLogin(rr, req)
+
+	res := rr.Result()
+	var sessionCookie *http.Cookie
+	for _, c := range res.Cookies() {
+		if c.Name == sessionCookieName {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil || sessionCookie.Value == "" {
+		t.Fatalf("expected session cookie")
+	}
+
+	csrf := sessionCSRFToken(t, sessionCookie.Value)
+	if csrf == attackerToken {
+		t.Fatalf("expected csrf token rotation on login")
+	}
+}
+
+func TestOldCSRFCookieRejectedAfterLogin(t *testing.T) {
+	setupTestDB(t)
+	hash, err := generatePasswordHash("secret-pass")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)", "alice", hash); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	attackerToken := "attacker-csrf"
+	body := url.Values{
+		"username":   {"alice"},
+		"password":   {"secret-pass"},
+		"csrf_token": {attackerToken},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: attackerToken})
+	req.RemoteAddr = "127.0.0.1:1234"
+
+	rr := httptest.NewRecorder()
+	handleLogin(rr, req)
+
+	res := rr.Result()
+	var sessionCookie *http.Cookie
+	for _, c := range res.Cookies() {
+		if c.Name == sessionCookieName {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil || sessionCookie.Value == "" {
+		t.Fatalf("expected session cookie")
+	}
+
+	oldBody := url.Values{"csrf_token": {attackerToken}}.Encode()
+	oldReq := httptest.NewRequest(http.MethodPost, "/api/user/sessions/revoke-all", strings.NewReader(oldBody))
+	oldReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	oldReq.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sessionCookie.Value})
+	oldReq.AddCookie(&http.Cookie{Name: csrfCookieName, Value: attackerToken})
+	oldRR := httptest.NewRecorder()
+	handleRevokeAllSessions(oldRR, oldReq)
+	if oldRR.Result().StatusCode != http.StatusForbidden {
+		t.Fatalf("expected old csrf token rejected, got %d", oldRR.Result().StatusCode)
+	}
+}
+
+func TestHandleLoginRotatesCSRFToken(t *testing.T) {
+	setupTestDB(t)
+	hash, err := generatePasswordHash("secret-pass")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)", "alice", hash); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	attackerToken := "attacker-csrf"
+	body := url.Values{
+		"username":   {"alice"},
+		"password":   {"secret-pass"},
+		"csrf_token": {attackerToken},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: attackerToken})
+	req.RemoteAddr = "127.0.0.1:1234"
+
+	rr := httptest.NewRecorder()
+	handleLogin(rr, req)
+
+	res := rr.Result()
+	var sessionCookie *http.Cookie
+	for _, c := range res.Cookies() {
+		if c.Name == sessionCookieName {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil || sessionCookie.Value == "" {
+		t.Fatalf("expected session cookie")
+	}
+
+	csrf := sessionCSRFToken(t, sessionCookie.Value)
+	if csrf == attackerToken {
+		t.Fatalf("expected csrf token rotation on login")
+	}
+
+	oldBody := url.Values{"csrf_token": {attackerToken}}.Encode()
+	oldReq := httptest.NewRequest(http.MethodPost, "/api/user/sessions/revoke-all", strings.NewReader(oldBody))
+	oldReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	oldReq.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sessionCookie.Value})
+	oldReq.AddCookie(&http.Cookie{Name: csrfCookieName, Value: attackerToken})
+	oldRR := httptest.NewRecorder()
+	handleRevokeAllSessions(oldRR, oldReq)
+	if oldRR.Result().StatusCode != http.StatusForbidden {
+		t.Fatalf("expected old csrf token rejected, got %d", oldRR.Result().StatusCode)
+	}
+
+	newBody := url.Values{"csrf_token": {csrf}}.Encode()
+	newReq := httptest.NewRequest(http.MethodPost, "/api/user/sessions/revoke-all", strings.NewReader(newBody))
+	newReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	newReq.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sessionCookie.Value})
+	newReq.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
+	newRR := httptest.NewRecorder()
+	handleRevokeAllSessions(newRR, newReq)
+	if newRR.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected new csrf token accepted, got %d", newRR.Result().StatusCode)
+	}
+}
+
 func TestHandleTokenLoginSuccess(t *testing.T) {
 	setupTestDB(t)
 	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, 'Free', 'Active', ?, 'u#1', 0, 'ref', '', 0, 0)", "api-user", "hash", "api-token"); err != nil {
@@ -195,6 +429,129 @@ func TestHandleTokenLoginSuccess(t *testing.T) {
 	}
 }
 
+func TestTokenLoginRedirectsUnchanged(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, 'Free', 'Active', ?, 'u#1', 0, 'ref', '', 0, 0)", "api-user", "hash", "api-token"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	body := url.Values{
+		"token":      {"api-token"},
+		"csrf_token": {"csrf-token"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/token-login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.RemoteAddr = "127.0.0.1:1234"
+
+	rr := httptest.NewRecorder()
+	handleTokenLogin(rr, req)
+
+	res := rr.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", res.StatusCode)
+	}
+	if loc := res.Header.Get("Location"); !strings.HasPrefix(loc, "/dashboard") {
+		t.Fatalf("expected dashboard redirect, got %q", loc)
+	}
+}
+
+func TestTokenLoginRotatesCSRFAcrossBoundary(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, 'Free', 'Active', ?, 'u#1', 0, 'ref', '', 0, 0)", "api-user", "hash", "api-token"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	attackerToken := "attacker-csrf"
+	body := url.Values{
+		"token":      {"api-token"},
+		"csrf_token": {attackerToken},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/token-login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: attackerToken})
+	req.RemoteAddr = "127.0.0.1:1234"
+
+	rr := httptest.NewRecorder()
+	handleTokenLogin(rr, req)
+
+	res := rr.Result()
+	var sessionCookie *http.Cookie
+	for _, c := range res.Cookies() {
+		if c.Name == sessionCookieName {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil || sessionCookie.Value == "" {
+		t.Fatalf("expected session cookie")
+	}
+
+	csrf := sessionCSRFToken(t, sessionCookie.Value)
+	if csrf == attackerToken {
+		t.Fatalf("expected csrf token rotation on token login")
+	}
+}
+
+func TestHandleTokenLoginRotatesCSRFToken(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, 'Free', 'Active', ?, 'u#1', 0, 'ref', '', 0, 0)", "api-user", "hash", "api-token"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	attackerToken := "attacker-csrf"
+	body := url.Values{
+		"token":      {"api-token"},
+		"csrf_token": {attackerToken},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/token-login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: attackerToken})
+	req.RemoteAddr = "127.0.0.1:1234"
+
+	rr := httptest.NewRecorder()
+	handleTokenLogin(rr, req)
+
+	res := rr.Result()
+	var sessionCookie *http.Cookie
+	for _, c := range res.Cookies() {
+		if c.Name == sessionCookieName {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil || sessionCookie.Value == "" {
+		t.Fatalf("expected session cookie")
+	}
+
+	csrf := sessionCSRFToken(t, sessionCookie.Value)
+	if csrf == attackerToken {
+		t.Fatalf("expected csrf token rotation on token login")
+	}
+
+	oldBody := url.Values{"csrf_token": {attackerToken}}.Encode()
+	oldReq := httptest.NewRequest(http.MethodPost, "/api/user/sessions/revoke-all", strings.NewReader(oldBody))
+	oldReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	oldReq.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sessionCookie.Value})
+	oldReq.AddCookie(&http.Cookie{Name: csrfCookieName, Value: attackerToken})
+	oldRR := httptest.NewRecorder()
+	handleRevokeAllSessions(oldRR, oldReq)
+	if oldRR.Result().StatusCode != http.StatusForbidden {
+		t.Fatalf("expected old csrf token rejected, got %d", oldRR.Result().StatusCode)
+	}
+
+	newBody := url.Values{"csrf_token": {csrf}}.Encode()
+	newReq := httptest.NewRequest(http.MethodPost, "/api/user/sessions/revoke-all", strings.NewReader(newBody))
+	newReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	newReq.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sessionCookie.Value})
+	newReq.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
+	newRR := httptest.NewRecorder()
+	handleRevokeAllSessions(newRR, newReq)
+	if newRR.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected new csrf token accepted, got %d", newRR.Result().StatusCode)
+	}
+}
+
 func TestLogoutInvalidSessionDoesNotDeleteOtherSessions(t *testing.T) {
 	setupTestDB(t)
 
@@ -215,6 +572,39 @@ func TestLogoutInvalidSessionDoesNotDeleteOtherSessions(t *testing.T) {
 	handleLogout(rr, req)
 
 	var count int
+	if err := db.QueryRow("SELECT count(*) FROM sessions WHERE token=?", bobToken).Scan(&count); err != nil {
+		t.Fatalf("query bob session: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected bob session to remain, got %d", count)
+	}
+}
+
+func TestLogoutStillSafe(t *testing.T) {
+	setupTestDB(t)
+
+	aliceToken := createSession("alice", nil)
+	if aliceToken == "" {
+		t.Fatalf("expected alice session token")
+	}
+	bobToken := createSession("bob", nil)
+	if bobToken == "" {
+		t.Fatalf("expected bob session token")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/logout", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: aliceToken})
+	req.RemoteAddr = "127.0.0.1:1234"
+	rr := httptest.NewRecorder()
+	handleLogout(rr, req)
+
+	var count int
+	if err := db.QueryRow("SELECT count(*) FROM sessions WHERE token=?", aliceToken).Scan(&count); err != nil {
+		t.Fatalf("query alice session: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected alice session to be deleted, got %d", count)
+	}
 	if err := db.QueryRow("SELECT count(*) FROM sessions WHERE token=?", bobToken).Scan(&count); err != nil {
 		t.Fatalf("query bob session: %v", err)
 	}

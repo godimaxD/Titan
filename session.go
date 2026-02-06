@@ -50,6 +50,20 @@ func createSession(username string, r *http.Request) string {
 	return token
 }
 
+func rotateSessionCSRF(sessionToken string) string {
+	if sessionToken == "" {
+		return ""
+	}
+	newToken := generateToken()
+	if newToken == "" {
+		return ""
+	}
+	if _, err := db.Exec("UPDATE sessions SET csrf_token=? WHERE token=? AND expires > ?", newToken, sessionToken, time.Now().Unix()); err != nil {
+		return ""
+	}
+	return newToken
+}
+
 func getSessionCSRFToken(sessionToken string) (string, bool) {
 	if sessionToken == "" {
 		return "", false
