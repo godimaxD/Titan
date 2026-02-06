@@ -120,6 +120,29 @@ func parseEnvBool(val string) bool {
 	}
 }
 
+func formatIntWithCommas(n int64) string {
+	sign := ""
+	if n < 0 {
+		sign = "-"
+		n = -n
+	}
+	s := strconv.FormatInt(n, 10)
+	if len(s) <= 3 {
+		return sign + s
+	}
+	var b strings.Builder
+	prefix := len(s) % 3
+	if prefix == 0 {
+		prefix = 3
+	}
+	b.WriteString(s[:prefix])
+	for i := prefix; i < len(s); i += 3 {
+		b.WriteByte(',')
+		b.WriteString(s[i : i+3])
+	}
+	return sign + b.String()
+}
+
 func isSecureRequest(r *http.Request) bool {
 	if cfg.ForceSecureCookies {
 		return true

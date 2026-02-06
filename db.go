@@ -61,6 +61,11 @@ func initDB() {
 			resource_ids TEXT,
 			metadata TEXT
 		);`,
+		`CREATE TABLE IF NOT EXISTS attacks (
+			id TEXT PRIMARY KEY,
+			status TEXT,
+			end_time INTEGER
+		);`,
 	}
 	for _, t := range tables {
 		if _, err := db.Exec(t); err != nil {

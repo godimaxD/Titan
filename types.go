@@ -155,6 +155,9 @@ type PageData struct {
 	StatusMemAlloc                                                             string
 	StatusMemSys                                                               string
 	StatusActiveAttacksAvailable                                               bool
+	TotalUsers                                                                 string
+	TotalAttacks                                                               string
+	RunningAttacks                                                             string
 	LoginMode                                                                  string
 }
 
