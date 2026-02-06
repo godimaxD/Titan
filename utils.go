@@ -766,15 +766,15 @@ func isBlacklisted(t string) bool {
 		return false
 	}
 	var direct bool
-	if err := db.QueryRow("SELECT 1 FROM blacklist WHERE target=?", t).Scan(&direct); err == nil && direct {
+	if err := db.QueryRow("SELECT 1 FROM blacklist WHERE lower(target)=lower(?)", t).Scan(&direct); err == nil && direct {
 		return true
 	}
 	normalized, ok := normalizeBlacklistTarget(t)
-	if !ok || normalized == "" || normalized == t {
+	if !ok || normalized == "" {
 		return false
 	}
 	var normalizedMatch bool
-	if err := db.QueryRow("SELECT 1 FROM blacklist WHERE target=?", normalized).Scan(&normalizedMatch); err == nil && normalizedMatch {
+	if err := db.QueryRow("SELECT 1 FROM blacklist WHERE lower(target)=lower(?)", normalized).Scan(&normalizedMatch); err == nil && normalizedMatch {
 		return true
 	}
 	return false

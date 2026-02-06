@@ -106,7 +106,7 @@ func TestMigrateWalletPrivateKeys(t *testing.T) {
 func TestIsBlacklistedNormalizesTargets(t *testing.T) {
 	setupTestDB(t)
 
-	if _, err := db.Exec("INSERT INTO blacklist (target, reason, date) VALUES ('example.com', 'test', '2024-01-01')"); err != nil {
+	if _, err := db.Exec("INSERT INTO blacklist (target, reason, date) VALUES ('ExAmPlE.CoM', 'test', '2024-01-01')"); err != nil {
 		t.Fatalf("insert blacklist: %v", err)
 	}
 
