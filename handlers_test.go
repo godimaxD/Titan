@@ -33,7 +33,7 @@ func setupTestDB(t *testing.T) {
 			ref_code TEXT, referred_by TEXT, ref_earnings REAL DEFAULT 0, ref_paid INTEGER DEFAULT 0
 		);`,
 		`CREATE TABLE sessions (
-			token TEXT PRIMARY KEY, username TEXT, expires INTEGER, created_at INTEGER, last_seen INTEGER, user_agent TEXT, ip TEXT
+			token TEXT PRIMARY KEY, username TEXT, expires INTEGER, created_at INTEGER, last_seen INTEGER, user_agent TEXT, ip TEXT, csrf_token TEXT
 		);`,
 		`CREATE TABLE products (
 			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price REAL, time INTEGER, concurrents INTEGER, vip BOOLEAN, api_access BOOLEAN
@@ -114,6 +114,49 @@ func TestHandleLoginSuccess(t *testing.T) {
 	}
 	if len(res.Cookies()) == 0 {
 		t.Fatalf("expected session cookie")
+	}
+}
+
+func TestHandleLoginInvalidatesExistingSessions(t *testing.T) {
+	setupTestDB(t)
+	hash, err := generatePasswordHash("secret-pass")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)", "alice", hash); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	oldToken := createSession("alice", nil)
+	if oldToken == "" {
+		t.Fatalf("expected old session token")
+	}
+
+	body := url.Values{
+		"username":   {"alice"},
+		"password":   {"secret-pass"},
+		"csrf_token": {"csrf-token"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.RemoteAddr = "127.0.0.1:1234"
+
+	rr := httptest.NewRecorder()
+	handleLogin(rr, req)
+
+	var count int
+	if err := db.QueryRow("SELECT count(*) FROM sessions WHERE username='alice'").Scan(&count); err != nil {
+		t.Fatalf("count sessions: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 session after login, got %d", count)
+	}
+	if err := db.QueryRow("SELECT count(*) FROM sessions WHERE token=?", oldToken).Scan(&count); err != nil {
+		t.Fatalf("count old session: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected old session invalidated, got %d", count)
 	}
 }
 
@@ -234,11 +277,12 @@ func TestHandlePurchaseSuccess(t *testing.T) {
 	if sess == "" {
 		t.Fatalf("expected session token")
 	}
+	csrf := sessionCSRFToken(t, sess)
 
-	body := url.Values{"csrf_token": {"csrf-token"}}.Encode()
+	body := url.Values{"csrf_token": {csrf}}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/api/market/purchase?id=1", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 
 	rr := httptest.NewRecorder()
@@ -292,15 +336,16 @@ func TestHandleAddWalletAdmin(t *testing.T) {
 	if sess == "" {
 		t.Fatalf("expected session token")
 	}
+	csrf := sessionCSRFToken(t, sess)
 
 	body := url.Values{
-		"csrf_token":  {"csrf-token"},
+		"csrf_token":  {csrf},
 		"address":     {"T123"},
 		"private_key": {"key"},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/add-wallet", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 
 	rr := httptest.NewRecorder()
@@ -329,11 +374,12 @@ func TestHandleRotateTokenInvalidatesOld(t *testing.T) {
 	if sess == "" {
 		t.Fatalf("expected session token")
 	}
+	csrf := sessionCSRFToken(t, sess)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/user/token/rotate", nil)
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
-	req.Header.Set("X-CSRF-Token", "csrf-token")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
+	req.Header.Set("X-CSRF-Token", csrf)
 	rr := httptest.NewRecorder()
 	handleRotateToken(rr, req)
 
@@ -369,15 +415,16 @@ func TestHandleAddWalletAdminMissingKey(t *testing.T) {
 	if sess == "" {
 		t.Fatalf("expected session token")
 	}
+	csrf := sessionCSRFToken(t, sess)
 
 	body := url.Values{
-		"csrf_token":  {"csrf-token"},
+		"csrf_token":  {csrf},
 		"address":     {"T999"},
 		"private_key": {"key"},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/add-wallet", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 
 	rr := httptest.NewRecorder()
@@ -752,13 +799,14 @@ func TestHandleCreateDepositRedirectsToPayPage(t *testing.T) {
 	lastKnownTrxPrice = 0.2
 
 	sess := createSession("alice", nil)
+	csrf := sessionCSRFToken(t, sess)
 	body := url.Values{
-		"csrf_token": {"csrf-token"},
+		"csrf_token": {csrf},
 		"amount":     {"25"},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 
 	rr := httptest.NewRecorder()
@@ -786,13 +834,14 @@ func TestHandleCreateDepositAllowsEmptyStatusWallet(t *testing.T) {
 	lastKnownTrxPrice = 0.2
 
 	sess := createSession("alice", nil)
+	csrf := sessionCSRFToken(t, sess)
 	body := url.Values{
-		"csrf_token": {"csrf-token"},
+		"csrf_token": {csrf},
 		"amount":     {"10"},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 
 	rr := httptest.NewRecorder()
@@ -821,13 +870,14 @@ func TestHandleCreateDepositReusesExpiredWallet(t *testing.T) {
 	lastKnownTrxPrice = 0.2
 
 	sess := createSession("alice", nil)
+	csrf := sessionCSRFToken(t, sess)
 	body := url.Values{
-		"csrf_token": {"csrf-token"},
+		"csrf_token": {csrf},
 		"amount":     {"15"},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 
 	rr := httptest.NewRecorder()
@@ -850,13 +900,14 @@ func TestHandleCreateDepositFailsWithNoUsableWallets(t *testing.T) {
 	lastKnownTrxPrice = 0.2
 
 	sess := createSession("alice", nil)
+	csrf := sessionCSRFToken(t, sess)
 	body := url.Values{
-		"csrf_token": {"csrf-token"},
+		"csrf_token": {csrf},
 		"amount":     {"15"},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 
 	rr := httptest.NewRecorder()
@@ -885,13 +936,14 @@ func TestHandleCreateDepositRollbackFreesWallet(t *testing.T) {
 	lastKnownTrxPrice = 0.2
 
 	sess := createSession("alice", nil)
+	csrf := sessionCSRFToken(t, sess)
 	body := url.Values{
-		"csrf_token": {"csrf-token"},
+		"csrf_token": {csrf},
 		"amount":     {"20"},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 
 	rr := httptest.NewRecorder()
@@ -1074,17 +1126,18 @@ func TestPanelL7SubmitInvalidInput(t *testing.T) {
 	}
 
 	sess := createSession("bob", nil)
+	csrf := sessionCSRFToken(t, sess)
 	body := url.Values{
 		"target":      {"not-a-url"},
 		"time":        {"10"},
 		"concurrency": {"1"},
 		"method":      {"HTTP-GET"},
-		"csrf_token":  {"csrf-token"},
+		"csrf_token":  {csrf},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/panel/l7/submit", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.RemoteAddr = "127.0.0.1:1234"
 
 	rr := httptest.NewRecorder()
@@ -1225,10 +1278,11 @@ func TestApiStopAllScope(t *testing.T) {
 	mu.Unlock()
 
 	sess := createSession("alice", nil)
+	csrf := sessionCSRFToken(t, sess)
 	req := httptest.NewRequest(http.MethodPost, "/api/attack/stopAll", nil)
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
-	req.Header.Set("X-CSRF-Token", "csrf-token")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
+	req.Header.Set("X-CSRF-Token", csrf)
 	rr := httptest.NewRecorder()
 	apiStopAll(rr, req)
 	if rr.Result().StatusCode != http.StatusOK {
@@ -1256,10 +1310,11 @@ func TestApiStopAllScope(t *testing.T) {
 		t.Fatalf("insert admin: %v", err)
 	}
 	sess = createSession("admin", nil)
+	csrf = sessionCSRFToken(t, sess)
 	req = httptest.NewRequest(http.MethodPost, "/api/attack/stopAll", nil)
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
-	req.Header.Set("X-CSRF-Token", "csrf-token")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
+	req.Header.Set("X-CSRF-Token", csrf)
 	rr = httptest.NewRecorder()
 	apiStopAll(rr, req)
 	if rr.Result().StatusCode != http.StatusOK {
@@ -1289,11 +1344,12 @@ func TestDepositConfirmRollbackOnFailure(t *testing.T) {
 	}
 
 	sess := createSession("admin", nil)
-	body := url.Values{"id": {"dep1"}, "action": {"confirm"}, "csrf_token": {"csrf-token"}}.Encode()
+	csrf := sessionCSRFToken(t, sess)
+	body := url.Values{"id": {"dep1"}, "action": {"confirm"}, "csrf_token": {csrf}}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/deposit/action", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	rr := httptest.NewRecorder()
 	handleDepositAction(rr, req)
 	if rr.Result().StatusCode != http.StatusFound {
@@ -1332,11 +1388,12 @@ func TestDepositRejectRollbackOnFailure(t *testing.T) {
 	}
 
 	sess := createSession("admin", nil)
-	body := url.Values{"id": {"dep1"}, "action": {"reject"}, "csrf_token": {"csrf-token"}}.Encode()
+	csrf := sessionCSRFToken(t, sess)
+	body := url.Values{"id": {"dep1"}, "action": {"reject"}, "csrf_token": {csrf}}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/deposit/action", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	rr := httptest.NewRecorder()
 	handleDepositAction(rr, req)
 	if rr.Result().StatusCode != http.StatusFound {
@@ -1373,18 +1430,19 @@ func TestPanelL4SubmitSuccess(t *testing.T) {
 	t.Cleanup(func() { cfg.C2Host = origHost })
 
 	sess := createSession("carol", nil)
+	csrf := sessionCSRFToken(t, sess)
 	body := url.Values{
 		"target":      {"1.1.1.1"},
 		"port":        {"443"},
 		"time":        {"10"},
 		"concurrency": {"1"},
 		"method":      {"UDP-FLOOD"},
-		"csrf_token":  {"csrf-token"},
+		"csrf_token":  {csrf},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/panel/l4/submit", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.RemoteAddr = "127.0.0.1:1234"
 
 	rr := httptest.NewRecorder()
@@ -1408,18 +1466,19 @@ func TestPanelL4RejectsLayer7Method(t *testing.T) {
 	}
 
 	sess := createSession("carol", nil)
+	csrf := sessionCSRFToken(t, sess)
 	body := url.Values{
 		"target":      {"1.1.1.1"},
 		"port":        {"443"},
 		"time":        {"10"},
 		"concurrency": {"1"},
 		"method":      {"HTTP-GET"},
-		"csrf_token":  {"csrf-token"},
+		"csrf_token":  {csrf},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/panel/l4/submit", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.RemoteAddr = "127.0.0.1:1234"
 
 	rr := httptest.NewRecorder()
@@ -1567,14 +1626,15 @@ func TestCreateDepositIdempotent(t *testing.T) {
 	lastKnownTrxPrice = 0.2
 
 	sess := createSession("alice", nil)
+	csrf := sessionCSRFToken(t, sess)
 	body := url.Values{
-		"csrf_token": {"csrf-token"},
+		"csrf_token": {csrf},
 		"amount":     {"25"},
 		"request_id": {"req-1"},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 	rr := httptest.NewRecorder()
 	handleCreateDeposit(rr, req)
@@ -1590,7 +1650,7 @@ func TestCreateDepositIdempotent(t *testing.T) {
 
 	req2 := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
 	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req2.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req2.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req2.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 	rr2 := httptest.NewRecorder()
 	handleCreateDeposit(rr2, req2)
@@ -1624,13 +1684,14 @@ func TestCreateDepositUsesAvailableWallets(t *testing.T) {
 	lastKnownTrxPrice = 0.2
 
 	sess := createSession("alice", nil)
+	csrf := sessionCSRFToken(t, sess)
 	body := url.Values{
-		"csrf_token": {"csrf-token"},
+		"csrf_token": {csrf},
 		"amount":     {"25"},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 	rr := httptest.NewRecorder()
 	handleCreateDeposit(rr, req)
@@ -1662,13 +1723,14 @@ func TestCreateDepositFailsWhenWalletsUnavailable(t *testing.T) {
 	lastKnownTrxPrice = 0.2
 
 	sess := createSession("alice", nil)
+	csrf := sessionCSRFToken(t, sess)
 	body := url.Values{
-		"csrf_token": {"csrf-token"},
+		"csrf_token": {csrf},
 		"amount":     {"25"},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 	rr := httptest.NewRecorder()
 	handleCreateDeposit(rr, req)
@@ -1691,20 +1753,21 @@ func TestPurchaseIdempotent(t *testing.T) {
 	}
 
 	sess := createSession("buyer", nil)
+	csrf := sessionCSRFToken(t, sess)
 	body := url.Values{
-		"csrf_token": {"csrf-token"},
+		"csrf_token": {csrf},
 		"request_id": {"purchase-1"},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/api/market/purchase?id=1", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 	rr := httptest.NewRecorder()
 	handlePurchase(rr, req)
 
 	req2 := httptest.NewRequest(http.MethodPost, "/api/market/purchase?id=1", strings.NewReader(body))
 	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req2.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req2.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req2.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 	rr2 := httptest.NewRecorder()
 	handlePurchase(rr2, req2)
@@ -1731,10 +1794,11 @@ func TestCreateTicketRequestTooLarge(t *testing.T) {
 		t.Fatalf("insert user: %v", err)
 	}
 	sess := createSession("alice", nil)
+	csrf := sessionCSRFToken(t, sess)
 
 	largeMessage := strings.Repeat("a", maxBodySize*2)
 	body := url.Values{
-		"csrf_token": {"csrf-token"},
+		"csrf_token": {csrf},
 		"subject":    {"Help"},
 		"category":   {"Billing"},
 		"message":    {largeMessage},
@@ -1749,7 +1813,7 @@ func TestCreateTicketRequestTooLarge(t *testing.T) {
 	if req.ContentLength <= maxBodySize {
 		t.Fatalf("expected content length > max, got %d", req.ContentLength)
 	}
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 	rr := httptest.NewRecorder()
 	handleCreateTicket(rr, req)
@@ -1818,10 +1882,11 @@ func TestReferralCreditAppliesPerPurchaseAndIsIdempotent(t *testing.T) {
 	}
 
 	sess := createSession("buyer", nil)
-	body := url.Values{"csrf_token": {"csrf-token"}, "request_id": {"req-1"}}.Encode()
+	csrf := sessionCSRFToken(t, sess)
+	body := url.Values{"csrf_token": {csrf}, "request_id": {"req-1"}}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/api/market/purchase?id=1", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 
 	rr := httptest.NewRecorder()
@@ -1836,10 +1901,10 @@ func TestReferralCreditAppliesPerPurchaseAndIsIdempotent(t *testing.T) {
 		t.Fatalf("expected redirect, got %d", rr.Result().StatusCode)
 	}
 
-	body = url.Values{"csrf_token": {"csrf-token"}, "request_id": {"req-2"}}.Encode()
+	body = url.Values{"csrf_token": {csrf}, "request_id": {"req-2"}}.Encode()
 	req = httptest.NewRequest(http.MethodPost, "/api/market/purchase?id=1", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 	rr = httptest.NewRecorder()
 	handlePurchase(rr, req)
@@ -1867,10 +1932,11 @@ func TestReferralCreditSkipsSelfReferral(t *testing.T) {
 	}
 
 	sess := createSession("buyer", nil)
-	body := url.Values{"csrf_token": {"csrf-token"}, "request_id": {"self-ref"}}.Encode()
+	csrf := sessionCSRFToken(t, sess)
+	body := url.Values{"csrf_token": {csrf}, "request_id": {"self-ref"}}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/api/market/purchase?id=1", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 
 	rr := httptest.NewRecorder()
@@ -1899,13 +1965,14 @@ func TestChangePasswordSuccessAndRevokesOtherSessions(t *testing.T) {
 	}
 	current := createSession("alice", nil)
 	other := createSession("alice", nil)
+	csrf := sessionCSRFToken(t, current)
 
 	payload := map[string]string{"current": "oldpass", "next": "newpass123", "confirm": "newpass123"}
 	body, _ := json.Marshal(payload)
 	req := httptest.NewRequest(http.MethodPost, "/api/user/change-password", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-CSRF-Token", "csrf-token")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.Header.Set("X-CSRF-Token", csrf)
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: current})
 
 	rr := httptest.NewRecorder()
@@ -1940,13 +2007,14 @@ func TestChangePasswordRejectsBadCurrent(t *testing.T) {
 		t.Fatalf("insert user: %v", err)
 	}
 	current := createSession("alice", nil)
+	csrf := sessionCSRFToken(t, current)
 
 	payload := map[string]string{"current": "wrong", "next": "newpass123", "confirm": "newpass123"}
 	body, _ := json.Marshal(payload)
 	req := httptest.NewRequest(http.MethodPost, "/api/user/change-password", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-CSRF-Token", "csrf-token")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.Header.Set("X-CSRF-Token", csrf)
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: current})
 
 	rr := httptest.NewRecorder()
@@ -1966,12 +2034,13 @@ func TestChangePasswordRejectsMissingCSRF(t *testing.T) {
 		t.Fatalf("insert user: %v", err)
 	}
 	current := createSession("alice", nil)
+	csrf := sessionCSRFToken(t, current)
 
 	payload := map[string]string{"current": "oldpass", "next": "newpass123", "confirm": "newpass123"}
 	body, _ := json.Marshal(payload)
 	req := httptest.NewRequest(http.MethodPost, "/api/user/change-password", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: current})
 
 	rr := httptest.NewRecorder()
@@ -1988,6 +2057,7 @@ func TestSessionsListAndRevoke(t *testing.T) {
 	}
 	current := createSession("alice", nil)
 	other := createSession("alice", nil)
+	csrf := sessionCSRFToken(t, current)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/user/sessions", nil)
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: current})
@@ -2017,8 +2087,8 @@ func TestSessionsListAndRevoke(t *testing.T) {
 	body, _ := json.Marshal(payload)
 	req = httptest.NewRequest(http.MethodPost, "/api/user/sessions/revoke", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-CSRF-Token", "csrf-token")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.Header.Set("X-CSRF-Token", csrf)
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: current})
 	rr = httptest.NewRecorder()
 	handleRevokeSession(rr, req)

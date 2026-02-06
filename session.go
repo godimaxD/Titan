@@ -16,13 +16,22 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, maxA
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   secure,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		MaxAge:   maxAge,
 	})
 }
 
 func createSession(username string, r *http.Request) string {
 	token := generateToken() + generateToken()
+	csrfToken := ""
+	if r != nil {
+		if c, err := r.Cookie(csrfCookieName); err == nil && c.Value != "" {
+			csrfToken = c.Value
+		}
+	}
+	if csrfToken == "" {
+		csrfToken = generateToken()
+	}
 	now := time.Now().Unix()
 	exp := now + 86400
 	userAgent := ""
@@ -33,12 +42,44 @@ func createSession(username string, r *http.Request) string {
 	}
 	// Backward compatible: if the table doesn't have new columns yet, this INSERT will fail.
 	// Our db migration adds the columns; in case of older DB, fallback to the simple insert.
-	if _, err := db.Exec("INSERT INTO sessions (token, username, expires, created_at, last_seen, user_agent, ip) VALUES (?, ?, ?, ?, ?, ?, ?)", token, username, exp, now, now, userAgent, ip); err != nil {
+	if _, err := db.Exec("INSERT INTO sessions (token, username, expires, created_at, last_seen, user_agent, ip, csrf_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", token, username, exp, now, now, userAgent, ip, csrfToken); err != nil {
 		if _, err2 := db.Exec("INSERT INTO sessions (token, username, expires) VALUES (?, ?, ?)", token, username, exp); err2 != nil {
 			return ""
 		}
 	}
 	return token
+}
+
+func getSessionCSRFToken(sessionToken string) (string, bool) {
+	if sessionToken == "" {
+		return "", false
+	}
+	var token string
+	if err := db.QueryRow("SELECT csrf_token FROM sessions WHERE token=? AND expires > ?", sessionToken, time.Now().Unix()).Scan(&token); err != nil {
+		return "", false
+	}
+	if token == "" {
+		return "", false
+	}
+	return token, true
+}
+
+func getOrCreateSessionCSRFToken(sessionToken string) (string, bool) {
+	token, ok := getSessionCSRFToken(sessionToken)
+	if ok {
+		return token, true
+	}
+	if sessionToken == "" {
+		return "", false
+	}
+	newToken := generateToken()
+	if newToken == "" {
+		return "", false
+	}
+	if _, err := db.Exec("UPDATE sessions SET csrf_token=? WHERE token=? AND expires > ?", newToken, sessionToken, time.Now().Unix()); err != nil {
+		return "", false
+	}
+	return newToken, true
 }
 
 func validateSession(r *http.Request) (string, bool) {
