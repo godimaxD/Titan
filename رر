@@ -1,0 +1,108 @@
+Act as a senior security engineer and backend auditor.
+
+You are reviewing a production Go web application (Go + SQLite + HTML templates).
+This is a SECURITY REVIEW, not a refactor or redesign task.
+
+==============================
+GOALS (VERY IMPORTANT)
+==============================
+
+1) Identify REAL security issues and logic vulnerabilities.
+2) Focus on exploitability, not style.
+3) Think like an attacker, not a code formatter.
+
+==============================
+SCOPE
+==============================
+
+Analyze the entire project, especially:
+
+- Authentication & login flows
+- Session handling
+- API token generation, rotation, and validation
+- CSRF protection
+- Privilege boundaries (user vs admin)
+- Redeem codes, referral codes, one-time tokens
+- Wallet / deposit / payment flows
+- Admin endpoints
+- Public vs authenticated routes
+- Error handling & information leaks
+- Concurrency & race conditions
+- SQLite transactional safety
+
+==============================
+WHAT TO LOOK FOR (MANDATORY)
+==============================
+
+For EACH issue you find, answer ALL of these:
+
+1) What is the exact vulnerability or weakness?
+2) Where is it located? (file + function + route)
+3) How could it be exploited step-by-step?
+4) What is the impact? (auth bypass, data leak, privilege escalation, DoS, fund loss, etc.)
+5) Is it exploitable remotely or only with auth?
+6) Is there a test that SHOULD exist but does not?
+
+==============================
+STRICT RULES
+==============================
+
+- Do NOT refactor code.
+- Do NOT suggest redesigns or “best practices” unless directly required for security.
+- Do NOT rewrite large sections.
+- Do NOT assume frontend JS always works.
+- Treat missing JS as a possible attack surface.
+- Treat race conditions as REAL (especially in SQLite).
+- Assume attacker can:
+  - Send concurrent requests
+  - Skip UI
+  - Replay requests
+  - Guess endpoints
+  - Use old tokens
+  - Abuse redirects
+
+==============================
+CRITICAL CHECKS (MUST DO)
+==============================
+
+Explicitly verify and comment on:
+
+- Can an old API token still work after rotation?
+- Can redeem codes be reused or raced?
+- Can CSRF be bypassed on any POST?
+- Can admin-only routes be accessed by users?
+- Can error messages leak sensitive state?
+- Can wallet / deposit assignment race?
+- Can session fixation or token fixation occur?
+- Can login modes be confused (password vs token vs redeem)?
+
+==============================
+OUTPUT FORMAT (MANDATORY)
+==============================
+
+Produce the output in EXACTLY this structure:
+
+1) Executive Summary (high-level risk assessment)
+
+2) Critical Vulnerabilities
+   - [ID]
+   - Description
+   - Exploit scenario
+   - Impact
+   - Location
+
+3) High-Risk Issues
+
+4) Medium-Risk Issues
+
+5) Low-Risk / Hardening Suggestions
+
+6) Missing Tests (security-relevant only)
+
+==============================
+FINAL NOTE
+==============================
+
+This project is close to release.
+False positives are worse than silence.
+Only report issues you are confident are real and exploitable.
