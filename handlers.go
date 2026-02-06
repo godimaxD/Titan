@@ -1347,6 +1347,19 @@ func handlePage(pName string) http.HandlerFunc {
 			return
 		}
 		csrfToken := ensureCSRFCookie(w, r)
+		var dashboardTotalUsers string
+		var dashboardTotalAttacks string
+		var dashboardRunningAttacks string
+		if pName == "dashboard.html" {
+			stats, err := loadDashboardStats(time.Now())
+			if err != nil {
+				http.Error(w, fmt.Sprintf("dashboard stats unavailable: %v", err), http.StatusInternalServerError)
+				return
+			}
+			dashboardTotalUsers = formatIntWithCommas(stats.totalUsers)
+			dashboardTotalAttacks = formatIntWithCommas(stats.totalAttacks)
+			dashboardRunningAttacks = formatIntWithCommas(stats.runningAttacks)
+		}
 		var u User
 		err := db.QueryRow("SELECT username, plan, status, api_token, user_id, balance, ref_code, ref_earnings, referred_by FROM users WHERE username=?", username).Scan(&u.Username, &u.Plan, &u.Status, &u.ApiToken, &u.UserID, &u.Balance, &u.RefCode, &u.RefEarnings, &u.ReferredBy)
 		if err != nil {
@@ -1433,9 +1446,32 @@ func handlePage(pName string) http.HandlerFunc {
 			FlashType:        flashType,
 			RequestID:        generateToken(),
 			FreePlan:         freePlan,
+			TotalUsers:       dashboardTotalUsers,
+			TotalAttacks:     dashboardTotalAttacks,
+			RunningAttacks:   dashboardRunningAttacks,
 		}
 		renderTemplate(w, pName, pd)
 	}
+}
+
+type dashboardStats struct {
+	totalUsers     int64
+	totalAttacks   int64
+	runningAttacks int64
+}
+
+func loadDashboardStats(now time.Time) (dashboardStats, error) {
+	var stats dashboardStats
+	if err := db.QueryRow("SELECT count(*) FROM users").Scan(&stats.totalUsers); err != nil {
+		return stats, fmt.Errorf("users count query failed: %w", err)
+	}
+	if err := db.QueryRow("SELECT count(*) FROM attacks").Scan(&stats.totalAttacks); err != nil {
+		return stats, fmt.Errorf("attacks count query failed: %w", err)
+	}
+	if err := db.QueryRow("SELECT count(*) FROM attacks WHERE status = ? OR end_time > ?", "running", now.Unix()).Scan(&stats.runningAttacks); err != nil {
+		return stats, fmt.Errorf("running attacks count query failed: %w", err)
+	}
+	return stats, nil
 }
 
 func handleLanding(w http.ResponseWriter, r *http.Request) {

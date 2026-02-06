@@ -72,6 +72,11 @@ func setupTestDB(t *testing.T) {
 			resource_ids TEXT,
 			metadata TEXT
 		);`,
+		`CREATE TABLE attacks (
+			id TEXT PRIMARY KEY,
+			status TEXT,
+			end_time INTEGER
+		);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {
