@@ -1438,6 +1438,28 @@ func handlePage(pName string) http.HandlerFunc {
 	}
 }
 
+func handleLanding(w http.ResponseWriter, r *http.Request) {
+	setSecurityHeaders(w)
+	if r.URL.Path != "/" {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+	refCode := strings.TrimSpace(Sanitize(r.URL.Query().Get("ref")))
+	var products []Product
+	rows, err := db.Query("SELECT id, name, price, time, concurrents, vip, api_access FROM products ORDER BY id DESC LIMIT 6")
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var p Product
+			if scanErr := rows.Scan(&p.ID, &p.Name, &p.Price, &p.Time, &p.Concurrents, &p.VIP, &p.APIAccess); scanErr != nil {
+				continue
+			}
+			products = append(products, p)
+		}
+	}
+	renderTemplate(w, "landing.html", PageData{ReferralCode: refCode, Products: products})
+}
+
 func handleStatusPage(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w)
 	username, ok := validateSession(r)
