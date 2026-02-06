@@ -1901,13 +1901,14 @@
             <p class="text-center text-muted-foreground text-base max-w-3xl mx-auto mb-16">Choose the plan that fits
                 your needs and start testing your resources today.
             <div class="max-w-screen-xl mx-auto grid grid-cols-1 lg:grid-cols-3 items-stretch gap-6 w-full">
-                <div class="relative border rounded-2xl p-8 flex flex-col transition-all bg-card border-border">
+                {{range $i, $p := .Products}}
+                <div class="{{if eq $i 1}}relative border rounded-2xl p-8 flex flex-col transition-all bg-card border-blue-500/60{{else}}relative border rounded-2xl p-8 flex flex-col transition-all bg-card border-border{{end}}">
                     <div class=flex-1>
-                        <h3 class="text-base font-medium text-foreground/80 mb-4">Starter #1</h3>
-                        <div class=mb-1><span class="text-6xl font-bold text-foreground tracking-tight">20 $</span>
+                        <h3 class="text-base font-medium text-foreground/80 mb-4">{{$p.Name}}</h3>
+                        <div class=mb-1><span class="text-6xl font-bold text-foreground tracking-tight">{{$p.Price}} $</span>
                         </div>
                         <p class="text-sm text-muted-foreground mb-6">Per Month
-                        <p class="text-sm text-muted-foreground mb-8">Basic plan for testing your targets</p><button
+                        <p class="text-sm text-muted-foreground mb-8">{{if eq $i 0}}Basic plan for testing your targets{{else if eq $i 1}}Galaxy plan for testing your targets{{else if eq $i 2}}Legendary plan for testing your targets{{else}}Basic plan for testing your targets{{end}}</p><button
                             class="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 px-4 py-2 w-full mb-3 rounded-xl h-12 font-medium bg-white text-black hover:bg-gray-100 transition-colors"
                             onclick="location.href='/login'">Try this Plan</button>
                         <p class="text-xs text-muted-foreground text-center mb-8">Billed monthly.
@@ -1920,13 +1921,13 @@
                                     stroke-linecap=round stroke-linejoin=round
                                     class="lucide lucide-check h-[18px] w-[18px] text-foreground shrink-0">
                                     <path d="M20 6 9 17l-5-5"></path>
-                                </svg><span class="text-sm text-foreground">1 concurrents</span>
+                                </svg><span class="text-sm text-foreground">{{$p.Concurrents}} concurrents</span>
                             <li class="flex items-center gap-3 text-sm"><svg xmlns=http://www.w3.org/2000/svg width=24
                                     height=24 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.5
                                     stroke-linecap=round stroke-linejoin=round
                                     class="lucide lucide-check h-[18px] w-[18px] text-foreground shrink-0">
                                     <path d="M20 6 9 17l-5-5"></path>
-                                </svg><span class="text-sm text-foreground">120 attack time</span>
+                                </svg><span class="text-sm text-foreground">{{$p.Time}} attack time</span>
                             <li class="flex items-center gap-3 text-sm"><svg xmlns=http://www.w3.org/2000/svg width=24
                                     height=24 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.5
                                     stroke-linecap=round stroke-linejoin=round
@@ -1939,129 +1940,34 @@
                                     class="lucide lucide-check h-[18px] w-[18px] text-foreground shrink-0">
                                     <path d="M20 6 9 17l-5-5"></path>
                                 </svg><span class="text-sm text-foreground">Unlimited tests</span>
-                            <li class="flex items-center gap-3 text-sm"><svg xmlns=http://www.w3.org/2000/svg width=24
+                            <li class="flex items-center gap-3 text-sm">{{if $p.VIP}}<svg xmlns=http://www.w3.org/2000/svg width=24
+                                    height=24 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.5
+                                    stroke-linecap=round stroke-linejoin=round
+                                    class="lucide lucide-check h-[18px] w-[18px] text-foreground shrink-0">
+                                    <path d="M20 6 9 17l-5-5"></path>
+                                </svg><span class="text-sm text-foreground">VIP Access</span>{{else}}<svg xmlns=http://www.w3.org/2000/svg width=24
                                     height=24 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.5
                                     stroke-linecap=round stroke-linejoin=round
                                     class="lucide lucide-x h-[18px] w-[18px] text-muted-foreground shrink-0">
                                     <path d="M18 6 6 18"></path>
                                     <path d="m6 6 12 12"></path>
-                                </svg><span class="text-sm text-muted-foreground">VIP Access</span>
-                            <li class="flex items-center gap-3 text-sm"><svg xmlns=http://www.w3.org/2000/svg width=24
+                                </svg><span class="text-sm text-muted-foreground">VIP Access</span>{{end}}
+                            <li class="flex items-center gap-3 text-sm">{{if $p.APIAccess}}<svg xmlns=http://www.w3.org/2000/svg width=24
+                                    height=24 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.5
+                                    stroke-linecap=round stroke-linejoin=round
+                                    class="lucide lucide-check h-[18px] w-[18px] text-foreground shrink-0">
+                                    <path d="M20 6 9 17l-5-5"></path>
+                                </svg><span class="text-sm text-foreground">API Access</span>{{else}}<svg xmlns=http://www.w3.org/2000/svg width=24
                                     height=24 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.5
                                     stroke-linecap=round stroke-linejoin=round
                                     class="lucide lucide-x h-[18px] w-[18px] text-muted-foreground shrink-0">
                                     <path d="M18 6 6 18"></path>
                                     <path d="m6 6 12 12"></path>
-                                </svg><span class="text-sm text-muted-foreground">API Access</span>
+                                </svg><span class="text-sm text-muted-foreground">API Access</span>{{end}}
                         </ul>
                     </div>
                 </div>
-                <div class="relative border rounded-2xl p-8 flex flex-col transition-all bg-card border-blue-500/60">
-                    <div class=flex-1>
-                        <h3 class="text-base font-medium text-foreground/80 mb-4">Galaxy</h3>
-                        <div class=mb-1><span class="text-6xl font-bold text-foreground tracking-tight">300 $</span>
-                        </div>
-                        <p class="text-sm text-muted-foreground mb-6">Per Month
-                        <p class="text-sm text-muted-foreground mb-8">Galaxy plan for testing your targets</p><button
-                            class="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 px-4 py-2 w-full mb-3 rounded-xl h-12 font-medium bg-white text-black hover:bg-gray-100 transition-colors"
-                            onclick="location.href='/login'">Try this Plan</button>
-                        <p class="text-xs text-muted-foreground text-center mb-8">Billed monthly.
-                        <div class=mb-4>
-                            <p class="text-sm font-semibold text-foreground mb-4">Features</p>
-                        </div>
-                        <ul class=space-y-3.5>
-                            <li class="flex items-center gap-3 text-sm"><svg xmlns=http://www.w3.org/2000/svg width=24
-                                    height=24 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.5
-                                    stroke-linecap=round stroke-linejoin=round
-                                    class="lucide lucide-check h-[18px] w-[18px] text-foreground shrink-0">
-                                    <path d="M20 6 9 17l-5-5"></path>
-                                </svg><span class="text-sm text-foreground">20 concurrents</span>
-                            <li class="flex items-center gap-3 text-sm"><svg xmlns=http://www.w3.org/2000/svg width=24
-                                    height=24 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.5
-                                    stroke-linecap=round stroke-linejoin=round
-                                    class="lucide lucide-check h-[18px] w-[18px] text-foreground shrink-0">
-                                    <path d="M20 6 9 17l-5-5"></path>
-                                </svg><span class="text-sm text-foreground">3000 attack time</span>
-                            <li class="flex items-center gap-3 text-sm"><svg xmlns=http://www.w3.org/2000/svg width=24
-                                    height=24 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.5
-                                    stroke-linecap=round stroke-linejoin=round
-                                    class="lucide lucide-check h-[18px] w-[18px] text-foreground shrink-0">
-                                    <path d="M20 6 9 17l-5-5"></path>
-                                </svg><span class="text-sm text-foreground">Primary Support</span>
-                            <li class="flex items-center gap-3 text-sm"><svg xmlns=http://www.w3.org/2000/svg width=24
-                                    height=24 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.5
-                                    stroke-linecap=round stroke-linejoin=round
-                                    class="lucide lucide-check h-[18px] w-[18px] text-foreground shrink-0">
-                                    <path d="M20 6 9 17l-5-5"></path>
-                                </svg><span class="text-sm text-foreground">Unlimited tests</span>
-                            <li class="flex items-center gap-3 text-sm"><svg xmlns=http://www.w3.org/2000/svg width=24
-                                    height=24 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.5
-                                    stroke-linecap=round stroke-linejoin=round
-                                    class="lucide lucide-check h-[18px] w-[18px] text-foreground shrink-0">
-                                    <path d="M20 6 9 17l-5-5"></path>
-                                </svg><span class="text-sm text-foreground">VIP Access</span>
-                            <li class="flex items-center gap-3 text-sm"><svg xmlns=http://www.w3.org/2000/svg width=24
-                                    height=24 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.5
-                                    stroke-linecap=round stroke-linejoin=round
-                                    class="lucide lucide-check h-[18px] w-[18px] text-foreground shrink-0">
-                                    <path d="M20 6 9 17l-5-5"></path>
-                                </svg><span class="text-sm text-foreground">API Access</span>
-                        </ul>
-                    </div>
-                </div>
-                <div class="relative border rounded-2xl p-8 flex flex-col transition-all bg-card border-border">
-                    <div class=flex-1>
-                        <h3 class="text-base font-medium text-foreground/80 mb-4">Legendary</h3>
-                        <div class=mb-1><span class="text-6xl font-bold text-foreground tracking-tight">950 $</span>
-                        </div>
-                        <p class="text-sm text-muted-foreground mb-6">Per Month
-                        <p class="text-sm text-muted-foreground mb-8">Legendary plan for testing your targets</p><button
-                            class="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 px-4 py-2 w-full mb-3 rounded-xl h-12 font-medium bg-white text-black hover:bg-gray-100 transition-colors"
-                            onclick="location.href='/login'">Try this Plan</button>
-                        <p class="text-xs text-muted-foreground text-center mb-8">Billed monthly.
-                        <div class=mb-4>
-                            <p class="text-sm font-semibold text-foreground mb-4">Features</p>
-                        </div>
-                        <ul class=space-y-3.5>
-                            <li class="flex items-center gap-3 text-sm"><svg xmlns=http://www.w3.org/2000/svg width=24
-                                    height=24 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.5
-                                    stroke-linecap=round stroke-linejoin=round
-                                    class="lucide lucide-check h-[18px] w-[18px] text-foreground shrink-0">
-                                    <path d="M20 6 9 17l-5-5"></path>
-                                </svg><span class="text-sm text-foreground">70 concurrents</span>
-                            <li class="flex items-center gap-3 text-sm"><svg xmlns=http://www.w3.org/2000/svg width=24
-                                    height=24 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.5
-                                    stroke-linecap=round stroke-linejoin=round
-                                    class="lucide lucide-check h-[18px] w-[18px] text-foreground shrink-0">
-                                    <path d="M20 6 9 17l-5-5"></path>
-                                </svg><span class="text-sm text-foreground">36000 attack time</span>
-                            <li class="flex items-center gap-3 text-sm"><svg xmlns=http://www.w3.org/2000/svg width=24
-                                    height=24 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.5
-                                    stroke-linecap=round stroke-linejoin=round
-                                    class="lucide lucide-check h-[18px] w-[18px] text-foreground shrink-0">
-                                    <path d="M20 6 9 17l-5-5"></path>
-                                </svg><span class="text-sm text-foreground">Primary Support</span>
-                            <li class="flex items-center gap-3 text-sm"><svg xmlns=http://www.w3.org/2000/svg width=24
-                                    height=24 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.5
-                                    stroke-linecap=round stroke-linejoin=round
-                                    class="lucide lucide-check h-[18px] w-[18px] text-foreground shrink-0">
-                                    <path d="M20 6 9 17l-5-5"></path>
-                                </svg><span class="text-sm text-foreground">Unlimited tests</span>
-                            <li class="flex items-center gap-3 text-sm"><svg xmlns=http://www.w3.org/2000/svg width=24
-                                    height=24 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.5
-                                    stroke-linecap=round stroke-linejoin=round
-                                    class="lucide lucide-check h-[18px] w-[18px] text-foreground shrink-0">
-                                    <path d="M20 6 9 17l-5-5"></path>
-                                </svg><span class="text-sm text-foreground">VIP Access</span>
-                            <li class="flex items-center gap-3 text-sm"><svg xmlns=http://www.w3.org/2000/svg width=24
-                                    height=24 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.5
-                                    stroke-linecap=round stroke-linejoin=round
-                                    class="lucide lucide-check h-[18px] w-[18px] text-foreground shrink-0">
-                                    <path d="M20 6 9 17l-5-5"></path>
-                                </svg><span class="text-sm text-foreground">API Access</span>
-                        </ul>
-                    </div>
-                </div>
+                {{end}}
             </div>
         </section>
         <footer class="dark:border-t mt-40 dark bg-background text-foreground">

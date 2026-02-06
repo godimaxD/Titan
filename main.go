@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -77,15 +76,7 @@ func main() {
 		}
 	}()
 
-	http.HandleFunc("/", wrapHandler(func(w http.ResponseWriter, r *http.Request) {
-		setSecurityHeaders(w)
-		if r.URL.Path != "/" {
-			http.Redirect(w, r, "/", 302)
-			return
-		}
-		refCode := strings.TrimSpace(Sanitize(r.URL.Query().Get("ref")))
-		renderTemplate(w, "landing.html", PageData{ReferralCode: refCode})
-	}))
+	http.HandleFunc("/", wrapHandler(handleLanding))
 
 	http.Handle("/captcha/", captcha.Server(240, 80))
 	http.HandleFunc("/login", wrapHandler(handleLogin))
