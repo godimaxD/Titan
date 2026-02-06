@@ -1,0 +1,33 @@
+# Go build artifacts
+/bin/
+/build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go workspace
+*.swp
+*.swo
+
+# Dependency directories
+/vendor/
+
+# Logs
+*.log
+
+# Databases (SQLite)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sqlite3-journal
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
