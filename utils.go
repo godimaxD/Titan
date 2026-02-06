@@ -211,27 +211,7 @@ func roundFloat(val float64, precision uint) float64 {
 
 func Sanitize(input string) string { return html.EscapeString(input) }
 
-func ensureCSRFCookie(w http.ResponseWriter, r *http.Request) string {
-	if r != nil {
-		if c, err := r.Cookie(sessionCookieName); err == nil && c.Value != "" {
-			if token, ok := getOrCreateSessionCSRFToken(c.Value); ok && token != "" {
-				secure := isSecureRequest(r)
-				http.SetCookie(w, &http.Cookie{
-					Name:     csrfCookieName,
-					Value:    token,
-					Path:     "/",
-					HttpOnly: true,
-					Secure:   secure,
-					SameSite: http.SameSiteLaxMode,
-				})
-				return token
-			}
-		}
-		if c, err := r.Cookie(csrfCookieName); err == nil && c.Value != "" {
-			return c.Value
-		}
-	}
-	token := generateToken()
+func setCSRFCookie(w http.ResponseWriter, r *http.Request, token string) {
 	secure := isSecureRequest(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     csrfCookieName,
@@ -241,6 +221,22 @@ func ensureCSRFCookie(w http.ResponseWriter, r *http.Request) string {
 		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
+}
+
+func ensureCSRFCookie(w http.ResponseWriter, r *http.Request) string {
+	if r != nil {
+		if c, err := r.Cookie(sessionCookieName); err == nil && c.Value != "" {
+			if token, ok := getOrCreateSessionCSRFToken(c.Value); ok && token != "" {
+				setCSRFCookie(w, r, token)
+				return token
+			}
+		}
+		if c, err := r.Cookie(csrfCookieName); err == nil && c.Value != "" {
+			return c.Value
+		}
+	}
+	token := generateToken()
+	setCSRFCookie(w, r, token)
 	return token
 }
 

@@ -81,7 +81,16 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 				http.Redirect(w, r, "/login?err=session", http.StatusFound)
 				return
 			}
+			csrfToken := rotateSessionCSRF(token)
+			if csrfToken == "" {
+				if existing, ok := getSessionCSRFToken(token); ok {
+					csrfToken = existing
+				} else {
+					csrfToken = generateToken()
+				}
+			}
 			setSessionCookie(w, r, token, 86400)
+			setCSRFCookie(w, r, csrfToken)
 			LogActivity(r, ActivityLogEntry{
 				ActorType: actorTypeUser,
 				ActorID:   getUserIDByUsername(u),
@@ -183,7 +192,16 @@ func handleTokenLogin(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?err=session&mode=token", http.StatusFound)
 		return
 	}
+	csrfToken := rotateSessionCSRF(sessionToken)
+	if csrfToken == "" {
+		if existing, ok := getSessionCSRFToken(sessionToken); ok {
+			csrfToken = existing
+		} else {
+			csrfToken = generateToken()
+		}
+	}
 	setSessionCookie(w, r, sessionToken, 86400)
+	setCSRFCookie(w, r, csrfToken)
 	LogActivity(r, ActivityLogEntry{
 		ActorType: actorTypeUser,
 		ActorID:   getUserIDByUsername(usr.Username),
