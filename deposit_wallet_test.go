@@ -29,13 +29,14 @@ func TestCreateDepositDeterministicWalletSelection(t *testing.T) {
 	lastKnownTrxPrice = 0.2
 
 	sess := createSession("alice", nil)
+	csrf := sessionCSRFToken(t, sess)
 	body := url.Values{
-		"csrf_token": {"csrf-token"},
+		"csrf_token": {csrf},
 		"amount":     {"25"},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 	rr := httptest.NewRecorder()
 	handleCreateDeposit(rr, req)
@@ -49,7 +50,7 @@ func TestCreateDepositDeterministicWalletSelection(t *testing.T) {
 	rr2 := httptest.NewRecorder()
 	req2 := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
 	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req2.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req2.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req2.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 	handleCreateDeposit(rr2, req2)
 
@@ -232,13 +233,14 @@ func TestNoWalletsLogsDiagnostics(t *testing.T) {
 	})
 
 	sess := createSession("alice", nil)
+	csrf := sessionCSRFToken(t, sess)
 	body := url.Values{
-		"csrf_token": {"csrf-token"},
+		"csrf_token": {csrf},
 		"amount":     {"25"},
 	}.Encode()
 	req := httptest.NewRequest(http.MethodPost, "/api/deposit/create", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
 	rr := httptest.NewRecorder()
 	handleCreateDeposit(rr, req)

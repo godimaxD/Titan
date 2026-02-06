@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -38,6 +41,49 @@ func TestValidateCSRFInvalid(t *testing.T) {
 
 	if validateCSRF(req) {
 		t.Fatalf("expected CSRF validation to fail without token")
+	}
+}
+
+func TestValidateCSRFSessionMismatchFails(t *testing.T) {
+	setupTestDB(t)
+	sess := createSession("alice", nil)
+	if sess == "" {
+		t.Fatalf("expected session token")
+	}
+	csrf := sessionCSRFToken(t, sess)
+	bad := csrf + "x"
+	body := url.Values{"csrf_token": {bad}}.Encode()
+	req := httptest.NewRequest("POST", "/submit", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: bad})
+
+	if validateCSRF(req) {
+		t.Fatalf("expected CSRF validation to fail with session mismatch")
+	}
+}
+
+func TestGenerateTokenUsesCryptoRandAndEntropy(t *testing.T) {
+	original := rand.Reader
+	t.Cleanup(func() {
+		rand.Reader = original
+	})
+	rand.Reader = bytes.NewReader(bytes.Repeat([]byte{0xAB}, 32))
+	token := generateToken()
+	if strings.ContainsAny(token, "+/=") {
+		t.Fatalf("expected URL-safe token, got %q", token)
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		t.Fatalf("decode token: %v", err)
+	}
+	if len(decoded) != 32 {
+		t.Fatalf("expected 32 bytes, got %d", len(decoded))
+	}
+	for i, b := range decoded {
+		if b != 0xAB {
+			t.Fatalf("expected deterministic byte at %d, got %x", i, b)
+		}
 	}
 }
 

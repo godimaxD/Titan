@@ -27,7 +27,7 @@ func initDB() {
 	username TEXT PRIMARY KEY, password TEXT, plan TEXT, status TEXT, api_token TEXT, user_id TEXT, balance REAL DEFAULT 0,
 	ref_code TEXT, referred_by TEXT, ref_earnings REAL DEFAULT 0, ref_paid INTEGER DEFAULT 0
 	);`,
-		`CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, username TEXT, expires INTEGER, created_at INTEGER, last_seen INTEGER, user_agent TEXT, ip TEXT);`,
+		`CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, username TEXT, expires INTEGER, created_at INTEGER, last_seen INTEGER, user_agent TEXT, ip TEXT, csrf_token TEXT);`,
 		`CREATE TABLE IF NOT EXISTS tickets (id TEXT PRIMARY KEY, user_id TEXT, category TEXT, subject TEXT, status TEXT, last_update DATETIME, messages TEXT);`,
 		`CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price REAL, time INTEGER, concurrents INTEGER, vip BOOLEAN, api_access BOOLEAN);`,
 		`CREATE TABLE IF NOT EXISTS plans (name TEXT PRIMARY KEY, concurrents INTEGER, max_time INTEGER, vip BOOLEAN, api BOOLEAN);`,
@@ -86,6 +86,7 @@ func initDB() {
 	db.Exec("ALTER TABLE sessions ADD COLUMN last_seen INTEGER;")
 	db.Exec("ALTER TABLE sessions ADD COLUMN user_agent TEXT;")
 	db.Exec("ALTER TABLE sessions ADD COLUMN ip TEXT;")
+	db.Exec("ALTER TABLE sessions ADD COLUMN csrf_token TEXT;")
 	db.Exec("UPDATE deposits SET usd_amount = amount * 0.20 WHERE (usd_amount IS NULL OR usd_amount = 0) AND amount > 0")
 	db.Exec("UPDATE users SET plan='Free' WHERE plan IS NULL OR plan=''")
 	db.Exec("UPDATE methods SET layer='layer4' WHERE layer IS NULL OR layer=''")

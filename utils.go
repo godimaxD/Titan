@@ -190,11 +190,25 @@ func Sanitize(input string) string { return html.EscapeString(input) }
 
 func ensureCSRFCookie(w http.ResponseWriter, r *http.Request) string {
 	if r != nil {
+		if c, err := r.Cookie(sessionCookieName); err == nil && c.Value != "" {
+			if token, ok := getOrCreateSessionCSRFToken(c.Value); ok && token != "" {
+				secure := isSecureRequest(r)
+				http.SetCookie(w, &http.Cookie{
+					Name:     csrfCookieName,
+					Value:    token,
+					Path:     "/",
+					HttpOnly: true,
+					Secure:   secure,
+					SameSite: http.SameSiteLaxMode,
+				})
+				return token
+			}
+		}
 		if c, err := r.Cookie(csrfCookieName); err == nil && c.Value != "" {
 			return c.Value
 		}
 	}
-	token := generateToken() + generateToken()
+	token := generateToken()
 	secure := isSecureRequest(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     csrfCookieName,
@@ -211,15 +225,20 @@ func validateCSRF(r *http.Request) bool {
 	if r == nil {
 		return false
 	}
-	c, err := r.Cookie(csrfCookieName)
-	if err != nil || c.Value == "" {
-		return false
-	}
 	token := r.FormValue("csrf_token")
 	if token == "" {
 		token = r.Header.Get("X-CSRF-Token")
 	}
 	if token == "" {
+		return false
+	}
+	if c, err := r.Cookie(sessionCookieName); err == nil && c.Value != "" {
+		if expected, ok := getSessionCSRFToken(c.Value); ok && expected != "" {
+			return subtle.ConstantTimeCompare([]byte(token), []byte(expected)) == 1
+		}
+	}
+	c, err := r.Cookie(csrfCookieName)
+	if err != nil || c.Value == "" {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(token), []byte(c.Value)) == 1
@@ -625,7 +644,11 @@ func releaseWalletForDepositTx(tx *sql.Tx, depositID string, now time.Time) erro
 	return err
 }
 
-func generateToken() string { b := make([]byte, 16); rand.Read(b); return fmt.Sprintf("%x", b) }
+func generateToken() string {
+	b := make([]byte, 32)
+	_, _ = rand.Read(b)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
 func generateUniqueRefCode() (string, error) {
 	for i := 0; i < 5; i++ {
 		code := generateToken()[:8]
