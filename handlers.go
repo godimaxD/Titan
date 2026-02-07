@@ -38,12 +38,12 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "POST" {
 		ip := getIP(r)
 		if isRateLimited(ip) {
-			logRateLimit(r, ip, Sanitize(r.FormValue("username")))
+			logRateLimit(r, ip, hashIdentifier(Sanitize(r.FormValue("username"))))
 			LogActivity(r, ActivityLogEntry{
 				ActorType: actorTypeUser,
 				Action:    "AUTH_LOGIN_RATE_LIMIT",
 				Severity:  severityWarn,
-				Username:  Sanitize(r.FormValue("username")),
+				Username:  hashIdentifier(Sanitize(r.FormValue("username"))),
 				Message:   "Login rate limited.",
 			})
 			http.Redirect(w, r, "/login?err=rate_limit", http.StatusFound)
@@ -54,7 +54,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 				ActorType: actorTypeUser,
 				Action:    "AUTH_LOGIN_CSRF_FAIL",
 				Severity:  severityWarn,
-				Username:  Sanitize(r.FormValue("username")),
+				Username:  hashIdentifier(Sanitize(r.FormValue("username"))),
 				Message:   "Login blocked by CSRF validation.",
 			})
 			http.Redirect(w, r, "/login?err=csrf", http.StatusFound)
@@ -62,11 +62,34 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 
 		u := Sanitize(r.FormValue("username"))
+		failedLoginID := hashIdentifier(u)
 		p := r.FormValue("password")
 		var dbHash string
 		err := db.QueryRow("SELECT password FROM users WHERE username=?", u).Scan(&dbHash)
-		match, _ := comparePasswordAndHash(p, dbHash)
-		if err == nil && match {
+		if err != nil {
+			LogActivity(r, ActivityLogEntry{
+				ActorType: actorTypeUser,
+				Username:  failedLoginID,
+				Action:    "AUTH_LOGIN_FAILED",
+				Severity:  severityWarn,
+				Message:   "Login failed due to invalid credentials.",
+			})
+			http.Redirect(w, r, "/login?err=invalid", http.StatusFound)
+			return
+		}
+		match, cmpErr := comparePasswordAndHash(p, dbHash)
+		if cmpErr != nil {
+			LogActivity(r, ActivityLogEntry{
+				ActorType: actorTypeUser,
+				Username:  failedLoginID,
+				Action:    "AUTH_LOGIN_FAILED",
+				Severity:  severityError,
+				Message:   "Login failed due to password verification error.",
+			})
+			http.Redirect(w, r, "/login?err=invalid", http.StatusFound)
+			return
+		}
+		if match {
 			db.Exec("DELETE FROM sessions WHERE username=?", u)
 			token := createSession(u, r)
 			if token == "" {
@@ -107,7 +130,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		} else {
 			LogActivity(r, ActivityLogEntry{
 				ActorType: actorTypeUser,
-				Username:  u,
+				Username:  failedLoginID,
 				Action:    "AUTH_LOGIN_FAILED",
 				Severity:  severityWarn,
 				Message:   "Login failed due to invalid credentials.",
@@ -1845,10 +1868,13 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 	c, err := r.Cookie(sessionCookieName)
 	if err == nil && c.Value != "" && ok {
 		res, err := db.Exec("DELETE FROM sessions WHERE token=? AND username=?", c.Value, username)
-		if err == nil {
-			if rows, _ := res.RowsAffected(); rows == 0 {
-				logLogoutMismatch(r, getIP(r), username)
-			}
+		if err != nil {
+			setSessionCookie(w, r, "", -1)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		if rows, _ := res.RowsAffected(); rows == 0 {
+			logLogoutMismatch(r, getIP(r), username)
 		}
 	} else if err == nil && c.Value != "" && !ok {
 		logLogoutMismatch(r, getIP(r), "")
@@ -2798,7 +2824,11 @@ func handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "user_not_found", "User not found.")
 		return
 	}
-	match, _ := comparePasswordAndHash(req.Current, dbHash)
+	match, cmpErr := comparePasswordAndHash(req.Current, dbHash)
+	if cmpErr != nil {
+		writeJSONError(w, http.StatusInternalServerError, "server_error", "Server error.")
+		return
+	}
 	if !match {
 		writeJSONError(w, http.StatusForbidden, "invalid_password", "Current password is incorrect.")
 		return

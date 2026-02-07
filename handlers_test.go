@@ -122,6 +122,119 @@ func TestHandleLoginSuccess(t *testing.T) {
 	}
 }
 
+func TestHandleLoginFailedRedactsUsername(t *testing.T) {
+	setupTestDB(t)
+	hash, err := generatePasswordHash("secret-pass")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)", "alice", hash); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	body := url.Values{
+		"username":   {"alice"},
+		"password":   {"wrong-pass"},
+		"csrf_token": {"csrf-token"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.RemoteAddr = "127.0.0.1:1234"
+
+	rr := httptest.NewRecorder()
+	handleLogin(rr, req)
+
+	res := rr.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", res.StatusCode)
+	}
+	if loc := res.Header.Get("Location"); loc != "/login?err=invalid" {
+		t.Fatalf("expected invalid login redirect, got %q", loc)
+	}
+
+	var username, action string
+	if err := db.QueryRow("SELECT username, action FROM activity_logs ORDER BY id DESC LIMIT 1").Scan(&username, &action); err != nil {
+		t.Fatalf("query activity log: %v", err)
+	}
+	if action != "AUTH_LOGIN_FAILED" {
+		t.Fatalf("expected login failed action, got %s", action)
+	}
+	if username == "alice" {
+		t.Fatalf("expected redacted username, got raw")
+	}
+	if username != hashIdentifier("alice") {
+		t.Fatalf("expected hashed username, got %s", username)
+	}
+}
+
+func TestHandleLoginMalformedHashFails(t *testing.T) {
+	setupTestDB(t)
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)", "alice", "not-a-hash"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	body := url.Values{
+		"username":   {"alice"},
+		"password":   {"secret-pass"},
+		"csrf_token": {"csrf-token"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.RemoteAddr = "127.0.0.1:1234"
+
+	rr := httptest.NewRecorder()
+	handleLogin(rr, req)
+
+	res := rr.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", res.StatusCode)
+	}
+	if loc := res.Header.Get("Location"); loc != "/login?err=invalid" {
+		t.Fatalf("expected invalid login redirect, got %q", loc)
+	}
+	var count int
+	if err := db.QueryRow("SELECT count(*) FROM sessions WHERE username='alice'").Scan(&count); err != nil {
+		t.Fatalf("query sessions: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected no session created, got %d", count)
+	}
+}
+
+func TestHandleLoginSuccessLogsUsername(t *testing.T) {
+	setupTestDB(t)
+	hash, err := generatePasswordHash("secret-pass")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)", "alice", hash); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	body := url.Values{
+		"username":   {"alice"},
+		"password":   {"secret-pass"},
+		"csrf_token": {"csrf-token"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.RemoteAddr = "127.0.0.1:1234"
+
+	rr := httptest.NewRecorder()
+	handleLogin(rr, req)
+
+	var username, action string
+	if err := db.QueryRow("SELECT username, action FROM activity_logs WHERE action='AUTH_LOGIN_SUCCESS' ORDER BY id DESC LIMIT 1").Scan(&username, &action); err != nil {
+		t.Fatalf("query activity log: %v", err)
+	}
+	if username != "alice" {
+		t.Fatalf("expected raw username for success log, got %s", username)
+	}
+}
+
 func TestLoginRedirectsUnchanged(t *testing.T) {
 	setupTestDB(t)
 	hash, err := generatePasswordHash("secret-pass")
@@ -633,6 +746,48 @@ func TestLogoutDeletesCurrentSession(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("expected alice session to be deleted, got %d", count)
+	}
+}
+
+func TestLogoutDeleteFailureReturnsError(t *testing.T) {
+	setupTestDB(t)
+
+	token := createSession("alice", nil)
+	if token == "" {
+		t.Fatalf("expected alice session token")
+	}
+
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec("PRAGMA query_only = ON"); err != nil {
+		t.Fatalf("set query_only: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/logout", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+	req.RemoteAddr = "127.0.0.1:1234"
+	rr := httptest.NewRecorder()
+	handleLogout(rr, req)
+
+	res := rr.Result()
+	if res.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected error status, got %d", res.StatusCode)
+	}
+	var cleared bool
+	for _, c := range res.Cookies() {
+		if c.Name == sessionCookieName && c.MaxAge < 0 {
+			cleared = true
+			break
+		}
+	}
+	if !cleared {
+		t.Fatalf("expected session cookie cleared")
+	}
+	var count int
+	if err := db.QueryRow("SELECT count(*) FROM sessions WHERE token=?", token).Scan(&count); err != nil {
+		t.Fatalf("query session: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected session to remain, got %d", count)
 	}
 }
 
