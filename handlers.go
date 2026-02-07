@@ -1163,6 +1163,15 @@ func handleAdminPage(w http.ResponseWriter, r *http.Request) {
 	renderTemplate(w, "admin.html", ad)
 }
 
+func requireAdminAccess(w http.ResponseWriter, r *http.Request) (string, bool) {
+	username, ok := validateSession(r)
+	if !ok || username != "admin" {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return "", false
+	}
+	return username, true
+}
+
 func handlePanelAttack(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w)
 	w.Header().Set("Content-Type", "application/json")
@@ -1867,13 +1876,19 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 	username, ok := validateSession(r)
 	c, err := r.Cookie(sessionCookieName)
 	if err == nil && c.Value != "" && ok {
-		res, err := db.Exec("DELETE FROM sessions WHERE token=? AND username=?", c.Value, username)
+		mismatchLogged := false
+		var tokenCount int
+		if err := db.QueryRow("SELECT count(*) FROM sessions WHERE token=? AND username=?", c.Value, username).Scan(&tokenCount); err == nil && tokenCount == 0 {
+			logLogoutMismatch(r, getIP(r), username)
+			mismatchLogged = true
+		}
+		res, err := db.Exec("DELETE FROM sessions WHERE username=?", username)
 		if err != nil {
 			setSessionCookie(w, r, "", -1)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
-		if rows, _ := res.RowsAffected(); rows == 0 {
+		if rows, _ := res.RowsAffected(); rows == 0 && !mismatchLogged {
 			logLogoutMismatch(r, getIP(r), username)
 		}
 	} else if err == nil && c.Value != "" && !ok {
@@ -1996,8 +2011,8 @@ func apiStopAll(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGenCode(w http.ResponseWriter, r *http.Request) {
-	u, ok := validateSession(r)
-	if !ok || u != "admin" {
+	_, ok := requireAdminAccess(w, r)
+	if !ok {
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -2026,8 +2041,8 @@ func handleGenCode(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleConfigPlans(w http.ResponseWriter, r *http.Request) {
-	u, ok := validateSession(r)
-	if !ok || u != "admin" {
+	u, ok := requireAdminAccess(w, r)
+	if !ok {
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -2105,8 +2120,8 @@ func handleConfigPlans(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleAddProduct(w http.ResponseWriter, r *http.Request) {
-	u, ok := validateSession(r)
-	if !ok || u != "admin" {
+	u, ok := requireAdminAccess(w, r)
+	if !ok {
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -2143,8 +2158,8 @@ func handleAddProduct(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDelProduct(w http.ResponseWriter, r *http.Request) {
-	username, ok := validateSession(r)
-	if !ok || username != "admin" {
+	username, ok := requireAdminAccess(w, r)
+	if !ok {
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -2171,8 +2186,8 @@ func handleDelProduct(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleAddWallet(w http.ResponseWriter, r *http.Request) {
-	username, ok := validateSession(r)
-	if !ok || username != "admin" {
+	username, ok := requireAdminAccess(w, r)
+	if !ok {
 		return
 	}
 	if r.Method == http.MethodGet {
@@ -2213,8 +2228,8 @@ func handleAddWallet(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDelWallet(w http.ResponseWriter, r *http.Request) {
-	username, ok := validateSession(r)
-	if !ok || username != "admin" {
+	username, ok := requireAdminAccess(w, r)
+	if !ok {
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -2241,8 +2256,8 @@ func handleDelWallet(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleBlacklistOp(w http.ResponseWriter, r *http.Request) {
-	username, ok := validateSession(r)
-	if !ok || username != "admin" {
+	username, ok := requireAdminAccess(w, r)
+	if !ok {
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -2288,8 +2303,8 @@ func handleBlacklistOp(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleUploadMethod(w http.ResponseWriter, r *http.Request) {
-	u, ok := validateSession(r)
-	if !ok || u != "admin" {
+	u, ok := requireAdminAccess(w, r)
+	if !ok {
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -2342,8 +2357,8 @@ func handleUploadMethod(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDepositAction(w http.ResponseWriter, r *http.Request) {
-	u, ok := validateSession(r)
-	if !ok || u != "admin" {
+	u, ok := requireAdminAccess(w, r)
+	if !ok {
 		return
 	}
 	if r.Method != http.MethodPost {

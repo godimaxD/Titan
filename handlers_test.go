@@ -122,6 +122,38 @@ func TestHandleLoginSuccess(t *testing.T) {
 	}
 }
 
+func TestHandleLoginAdminRedirect(t *testing.T) {
+	setupTestDB(t)
+	hash, err := generatePasswordHash("secret-pass")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES (?, ?, 'God', 'Active', 'tok', 'u#0', 0, 'ref', '', 0, 0)", "admin", hash); err != nil {
+		t.Fatalf("insert admin: %v", err)
+	}
+
+	body := url.Values{
+		"username":   {"admin"},
+		"password":   {"secret-pass"},
+		"csrf_token": {"csrf-token"},
+	}.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-token"})
+	req.RemoteAddr = "127.0.0.1:1234"
+
+	rr := httptest.NewRecorder()
+	handleLogin(rr, req)
+
+	res := rr.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", res.StatusCode)
+	}
+	if loc := res.Header.Get("Location"); loc != "/admin?view=overview" {
+		t.Fatalf("expected admin redirect, got %q", loc)
+	}
+}
+
 func TestHandleLoginFailedRedactsUsername(t *testing.T) {
 	setupTestDB(t)
 	hash, err := generatePasswordHash("secret-pass")
@@ -749,6 +781,44 @@ func TestLogoutDeletesCurrentSession(t *testing.T) {
 	}
 }
 
+func TestLogoutInvalidatesAllUserSessions(t *testing.T) {
+	setupTestDB(t)
+
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('alice', 'x', 'Free', 'Active', 'tok', 'u#1', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert alice: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO users (username, password, plan, status, api_token, user_id, balance, ref_code, referred_by, ref_earnings, ref_paid) VALUES ('bob', 'x', 'Free', 'Active', 'tok', 'u#2', 0, 'ref', '', 0, 0)"); err != nil {
+		t.Fatalf("insert bob: %v", err)
+	}
+
+	firstToken := createSession("alice", nil)
+	secondToken := createSession("alice", nil)
+	otherToken := createSession("bob", nil)
+	if firstToken == "" || secondToken == "" || otherToken == "" {
+		t.Fatalf("expected session tokens")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/logout", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: firstToken})
+	req.RemoteAddr = "127.0.0.1:1234"
+	rr := httptest.NewRecorder()
+	handleLogout(rr, req)
+
+	var count int
+	if err := db.QueryRow("SELECT count(*) FROM sessions WHERE username='alice'").Scan(&count); err != nil {
+		t.Fatalf("query alice sessions: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected alice sessions to be deleted, got %d", count)
+	}
+	if err := db.QueryRow("SELECT count(*) FROM sessions WHERE token=?", otherToken).Scan(&count); err != nil {
+		t.Fatalf("query bob session: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected bob session to remain, got %d", count)
+	}
+}
+
 func TestLogoutDeleteFailureReturnsError(t *testing.T) {
 	setupTestDB(t)
 
@@ -872,6 +942,59 @@ func TestHandleStatusPageLayout(t *testing.T) {
 	}
 	if !strings.Contains(body, "Network Status") || !strings.Contains(body, "Uptime") {
 		t.Fatalf("expected status content to include uptime")
+	}
+}
+
+func TestAdminAccessControls(t *testing.T) {
+	setupTestDB(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	rr := httptest.NewRecorder()
+	handleAdminPage(rr, req)
+	res := rr.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect for unauthenticated admin, got %d", res.StatusCode)
+	}
+	if loc := res.Header.Get("Location"); loc != "/dashboard" {
+		t.Fatalf("expected dashboard redirect, got %q", loc)
+	}
+
+	viewerToken := createSession("viewer", nil)
+	req = httptest.NewRequest(http.MethodGet, "/admin", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: viewerToken})
+	rr = httptest.NewRecorder()
+	handleAdminPage(rr, req)
+	res = rr.Result()
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("expected redirect for non-admin, got %d", res.StatusCode)
+	}
+	if loc := res.Header.Get("Location"); loc != "/dashboard" {
+		t.Fatalf("expected dashboard redirect, got %q", loc)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/admin/add-wallet", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: viewerToken})
+	rr = httptest.NewRecorder()
+	handleAddWallet(rr, req)
+	if rr.Result().StatusCode != http.StatusForbidden {
+		t.Fatalf("expected forbidden for non-admin admin API, got %d", rr.Result().StatusCode)
+	}
+
+	adminToken := createSession("admin", nil)
+	req = httptest.NewRequest(http.MethodGet, "/admin", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: adminToken})
+	rr = httptest.NewRecorder()
+	handleAdminPage(rr, req)
+	if rr.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected admin page access, got %d", rr.Result().StatusCode)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/admin/add-wallet", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: adminToken})
+	rr = httptest.NewRecorder()
+	handleAddWallet(rr, req)
+	if rr.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected admin API access, got %d", rr.Result().StatusCode)
 	}
 }
 
