@@ -18,6 +18,16 @@
             --glass-border: rgba(255, 255, 255, 0.1);
         }
 
+        *, *::before, *::after {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+
         body, div, aside, nav, button, input, span, p, h1, h2, h3, table, td, th {
             transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
         }
@@ -25,16 +35,25 @@
         body {
             background: var(--bg);
             color: var(--text);
+            overflow-x: hidden;
         }
 
         a { color: inherit; }
 
         table {
             color: var(--text);
+            max-width: 100%;
+            width: 100%;
         }
 
         thead {
             background: var(--bg-alt);
+        }
+
+        th,
+        td {
+            overflow-wrap: anywhere;
+            word-break: break-word;
         }
 
         tbody tr {
@@ -107,6 +126,24 @@
             clip: rect(0, 0, 0, 0);
             white-space: nowrap;
             border: 0;
+        }
+
+        img,
+        video,
+        canvas,
+        svg {
+            max-width: 100%;
+            height: auto;
+        }
+
+        @supports (height: 100svh) {
+            .h-screen {
+                height: 100svh;
+            }
+
+            .min-h-screen {
+                min-height: 100svh;
+            }
         }
 
         /* SCROLLBAR */
