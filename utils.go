@@ -211,6 +211,15 @@ func roundFloat(val float64, precision uint) float64 {
 
 func Sanitize(input string) string { return html.EscapeString(input) }
 
+func hashIdentifier(input string) string {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(input))
+	return fmt.Sprintf("sha256:%x", sum[:4])
+}
+
 func setCSRFCookie(w http.ResponseWriter, r *http.Request, token string) {
 	secure := isSecureRequest(r)
 	http.SetCookie(w, &http.Cookie{

@@ -2,10 +2,12 @@ package main
 
 import (
 	"net/http"
+	"strings"
 	"time"
 )
 
 const sessionCookieName = "sess"
+const maxSessionAbsoluteLifetime = 12 * time.Hour
 
 func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, maxAge int) {
 	// Allow local development over HTTP (otherwise Secure cookies won't be sent).
@@ -102,14 +104,23 @@ func validateSession(r *http.Request) (string, bool) {
 		return "", false
 	}
 
+	now := time.Now().Unix()
 	var username string
-	err = db.QueryRow("SELECT username FROM sessions WHERE token=? AND expires > ?", c.Value, time.Now().Unix()).Scan(&username)
+	var createdAt int64
+	err = db.QueryRow("SELECT username, COALESCE(created_at, 0) FROM sessions WHERE token=? AND expires > ?", c.Value, now).Scan(&username, &createdAt)
 	if err != nil {
+		if strings.Contains(err.Error(), "no such column") {
+			if err = db.QueryRow("SELECT username FROM sessions WHERE token=? AND expires > ?", c.Value, now).Scan(&username); err != nil {
+				return "", false
+			}
+		} else {
+			return "", false
+		}
+	} else if createdAt > 0 && now-createdAt > int64(maxSessionAbsoluteLifetime.Seconds()) {
 		return "", false
 	}
 
 	// Best-effort last_seen update (ignore errors if column doesn't exist)
-	now := time.Now().Unix()
 	userAgent := ""
 	ip := ""
 	if r != nil {
